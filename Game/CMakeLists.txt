@@ -23,11 +23,11 @@ marble_configure_executable(Game
     FULLSCREEN      FALSE
     VSYNC           TRUE
 
-    ICON_ICO        "${CMAKE_CURRENT_SOURCE_DIR}/icon.ico"
-    ICON_PNG        "assets/textures/icon/icon.png"
+    ICON_ICO        "${CMAKE_CURRENT_SOURCE_DIR}/assets/textures/icon/icon.ico"
+    ICON_PNG        "${CMAKE_CURRENT_SOURCE_DIR}/assets/textures/icon/icon.png"
 )
 
 add_custom_command(TARGET Game POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:Game>/assets
+    ${CMAKE_CURRENT_SOURCE_DIR}/assets $<TARGET_FILE_DIR:Game>/assets
 )

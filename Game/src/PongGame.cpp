@@ -36,24 +36,25 @@ void PongGame::OnStart() {
   m_Font   = std::make_unique<Marble::Font>("assets/fonts/DroidSans.ttf", SCORE_FONT_SIZE);
 
   // Subtle post-process — keep it clean for Pong
-  auto& pp         = App().GetPostProcessSettings();
-  pp.VignetteStrength = 0.15f;
-  pp.Contrast         = 1.05f;
+  Marble::PostProcessSettings& pp = App().GetPostProcessSettings();
+  pp.VignetteStrength             = 0.15f;
+  pp.Contrast                     = 1.05f;
 
   // Initial paddle positions
-  m_PlayerPos = { PADDLE_MARGIN,       m_RH * 0.5f };
+  m_PlayerPos = { PADDLE_MARGIN,        m_RH * 0.5f };
   m_AIPos     = { m_RW - PADDLE_MARGIN, m_RH * 0.5f };
 
   ResetBall(0); // launch toward player first
 }
 
-void PongGame::OnUpdate(float dt) {
-  if (Marble::Input::IsKeyJustPressed(Marble::Key::F11))
+void PongGame::OnUpdate(float deltaTime) {
+  if (Marble::Input::IsKeyJustPressed(Marble::Key::F11)) {
     App().SetFullscreen(!App().IsFullscreen());
+  }
 
   // ── Goal pause ────────────────────────────────────────────────────────────
   if (m_Paused) {
-    m_ResetTimer -= dt;
+    m_ResetTimer -= deltaTime;
     if (m_ResetTimer <= 0.0f) m_Paused = false;
     return;
   }
@@ -63,21 +64,21 @@ void PongGame::OnUpdate(float dt) {
 
   if (Marble::Input::IsKeyPressed(Marble::Key::W) ||
       Marble::Input::IsKeyPressed(Marble::Key::Up))
-    m_PlayerPos.y += PLAYER_SPEED * dt;
+    m_PlayerPos.y += PLAYER_SPEED * deltaTime;
 
   if (Marble::Input::IsKeyPressed(Marble::Key::S) ||
       Marble::Input::IsKeyPressed(Marble::Key::Down))
-    m_PlayerPos.y -= PLAYER_SPEED * dt;
+    m_PlayerPos.y -= PLAYER_SPEED * deltaTime;
 
   m_PlayerPos.y = glm::clamp(m_PlayerPos.y, halfPH, m_RH - halfPH);
 
   // ── AI paddle (tracks ball Y with a speed cap) ────────────────────────────
   const float aiDelta = m_BallPos.y - m_AIPos.y;
-  const float aiMove  = glm::clamp(aiDelta, -AI_SPEED * dt, AI_SPEED * dt);
+  const float aiMove  = glm::clamp(aiDelta, -AI_SPEED * deltaTime, AI_SPEED * deltaTime);
   m_AIPos.y = glm::clamp(m_AIPos.y + aiMove, halfPH, m_RH - halfPH);
 
   // ── Ball movement ─────────────────────────────────────────────────────────
-  m_BallPos += m_BallVel * dt;
+  m_BallPos += m_BallVel * deltaTime;
 
   const float halfBW = BALL_SIZE.x * 0.5f;
   const float halfBH = BALL_SIZE.y * 0.5f;
