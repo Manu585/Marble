@@ -1,0 +1,49 @@
+#pragma code_page(65001)   // UTF-8 source
+#include <winres.h>
+
+// ---------------------------------------------------------------------------
+// Application icon
+// ---------------------------------------------------------------------------
+@MARBLE_ICON_RC_LINE@
+
+// ---------------------------------------------------------------------------
+// Application manifest (replaces the CMake auto-generated one)
+// ---------------------------------------------------------------------------
+1 /* CREATEPROCESS_MANIFEST_RESOURCE_ID */ 24 /* RT_MANIFEST */
+    "@MARBLE_MANIFEST_PATH@"
+
+// ---------------------------------------------------------------------------
+// Version information
+// ---------------------------------------------------------------------------
+VS_VERSION_INFO VERSIONINFO
+    FILEVERSION    @MARBLE_VER_MAJOR@,@MARBLE_VER_MINOR@,@MARBLE_VER_PATCH@,@MARBLE_VER_BUILD@
+    PRODUCTVERSION @MARBLE_VER_MAJOR@,@MARBLE_VER_MINOR@,@MARBLE_VER_PATCH@,@MARBLE_VER_BUILD@
+    FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+    FILEFLAGS VS_FF_DEBUG
+#else
+    FILEFLAGS 0x0L
+#endif
+    FILEOS      VOS_NT_WINDOWS32
+    FILETYPE    VFT_APP
+    FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"  // Language: English (US), Charset: Unicode
+        BEGIN
+            VALUE "CompanyName",      "@MARBLE_COMPANY_NAME@"
+            VALUE "FileDescription",  "@MARBLE_DESCRIPTION@"
+            VALUE "FileVersion",      "@MARBLE_VERSION_STR@"
+            VALUE "InternalName",     "@MARBLE_INTERNAL_NAME@"
+            VALUE "LegalCopyright",   "@MARBLE_COPYRIGHT@"
+            VALUE "OriginalFilename", "@MARBLE_ORIGINAL_FILENAME@"
+            VALUE "ProductName",      "@MARBLE_PRODUCT_NAME@"
+            VALUE "ProductVersion",   "@MARBLE_VERSION_STR@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

@@ -1,0 +1,43 @@
+#pragma once
+#include <Marble.h>
+#include <memory>
+#include <random>
+
+class PongGame : public Marble::GameLayer {
+public:
+  void OnStart()                          override;
+  void OnUpdate(float dt)                 override;
+  void OnRender(Marble::Renderer2D& r)    override;
+  void OnStop()                           override;
+  void OnResize()                         override;
+
+private:
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  void ResetBall(int scoringSide); // -1 = left scored, +1 = right scored
+  void DrawCenterLine(Marble::Renderer2D& r) const;
+  void DrawScore(Marble::Renderer2D& r) const;
+
+  // ── Resources ─────────────────────────────────────────────────────────────
+  std::unique_ptr<Marble::OrthographicCamera> m_Camera;
+  std::unique_ptr<Marble::HUD>                m_HUD;
+  std::unique_ptr<Marble::Font>               m_Font;
+
+  // ── Game state ────────────────────────────────────────────────────────────
+  float m_RW = 0.0f; // render width  (set in OnStart / OnResize)
+  float m_RH = 0.0f; // render height
+
+  glm::vec2 m_PlayerPos{};   // paddle center
+  glm::vec2 m_AIPos{};       // paddle center
+
+  glm::vec2 m_BallPos{};
+  glm::vec2 m_BallVel{};     // pixels / second
+
+  int m_PlayerScore = 0;
+  int m_AIScore     = 0;
+
+  // Brief pause after a goal before the ball re-launches
+  float m_ResetTimer = 0.0f;
+  bool  m_Paused     = false;
+
+  std::mt19937 m_Rng{ std::random_device{}() };
+};
