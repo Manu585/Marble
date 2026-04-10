@@ -21,6 +21,11 @@ namespace Marble {
     virtual void OnStart()                          {}
     virtual void OnUpdate(float dt)                 {}
     virtual void OnRender(Renderer2D& renderer)     {}
+    // Screen-space pass drawn after OnRender, inside the same FBO.
+    // The renderer is already in a BeginScene with a pixel-coordinate camera
+    // (origin = bottom-left, extents = render resolution). Just draw — no
+    // BeginScene / EndScene needed. Resize is handled automatically.
+    virtual void OnHudRender(Renderer2D& renderer)  {}
     virtual void OnStop()                           {}
     virtual void OnResize()                         {}
 

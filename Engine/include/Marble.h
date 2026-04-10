@@ -10,11 +10,13 @@
 #include "Scene/Entity.h"
 #include "Scene/Component.h"
 #include "Scene/Components.h"
-#include "Scene/HUD.h"
 
 // Renderer
 #include "Renderer/Renderer2D.h"
 #include "Renderer/Texture.h"
+#include "Renderer/TextureRegion.h"
+#include "Renderer/SpriteSheet.h"
+#include "Renderer/Animator.h"
 #include "Renderer/Font.h"
 #include "Renderer/Camera.h"
 #include "Renderer/PostProcessSettings.h"
@@ -24,6 +26,13 @@
 
 // Input
 #include "Input/Input.h"
+
+// Audio
+#include "Audio/Audio.h"
+#include "Audio/Sound.h"
+
+// Debug
+#include "Debug/DebugDraw.h"
 
 // Math
 #include <glm/glm.hpp>

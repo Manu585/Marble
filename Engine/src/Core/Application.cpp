@@ -5,6 +5,8 @@
 
 #include "Application.h"
 #include "Input/Input.h"
+#include "Audio/Audio.h"
+#include "Debug/DebugDraw.h"
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -64,7 +66,11 @@ namespace Marble {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+    // Maximize on launch only when no explicit window size was requested.
+    // With an explicit size (e.g. 1280×720), the window should start at that
+    // size. Without one, it fills the monitor, so maximized is the right start.
+    const bool startMaximized = (spec.Width == 0 && spec.Height == 0 && !spec.Fullscreen);
+    glfwWindowHint(GLFW_MAXIMIZED, startMaximized ? GLFW_TRUE : GLFW_FALSE);
 
     if (spec.Fullscreen && primary && vid) {
       // True fullscreen at the monitor's native video mode, no border,
@@ -121,9 +127,14 @@ namespace Marble {
     // Set window handle for Input class
     Input::SetWindowHandle(m_Window);
 
+    Audio::Init();
+    DebugDraw::Init();
+
     m_Renderer    = std::make_unique<Renderer2D>();
     m_Framebuffer = std::make_unique<Framebuffer>(m_RenderWidth, m_RenderHeight, spec.Style == RenderStyle::Smooth ? TextureFilter::Linear : TextureFilter::Nearest);
     m_PostProcess = std::make_unique<PostProcessPass>();
+    m_HudCamera   = std::make_unique<OrthographicCamera>(0.0f, static_cast<float>(m_RenderWidth),
+                                                         0.0f, static_cast<float>(m_RenderHeight));
 
     // Sync m_Width/Height with the real framebuffer size.
     // glfwGetFramebufferSize is used rather than spec dimensions because:
@@ -136,9 +147,17 @@ namespace Marble {
   }
 
   Application::~Application() {
-    // Renderer, Framebuffer, PostProcess destroyed in reverse order by unique_ptr
+    // Destroy OpenGL objects in reverse creation order while the GL context is
+    // still active (i.e. before glfwDestroyWindow kills it).
+    //   1. Renderer, Framebuffer, PostProcess — via unique_ptr (implicit)
+    //   2. DebugDraw  — owns its own VAO/VBO; must be freed before GL context dies
+    DebugDraw::Shutdown();
+
+    // Destroy the window and GL context. Audio doesn't touch GL, so it's
+    // safe to uninitialize after the context is gone.
     glfwDestroyWindow(m_Window);
     glfwTerminate();
+    Audio::Shutdown();
 #ifdef _DEBUG
     FreeConsole();
 #endif
@@ -168,19 +187,29 @@ namespace Marble {
         continue;
       }
 
-      const float now       = static_cast<float>(glfwGetTime());
-      const float deltaTime = now - lastTime;
+      const float now = static_cast<float>(glfwGetTime());
+      // Cap deltaTime to 50 ms (≈20 FPS minimum). Without this, any stall —
+      // window drag, OS sleep, debugger break, un-minimize — produces a massive
+      // spike that explodes physics and gameplay state on the next frame.
+      const float deltaTime = std::min(now - lastTime, 0.05f);
       m_Time               += deltaTime;
       lastTime              = now;
 
+      DebugDraw::BeginFrame();
       Input::BeginFrame();
       layer.OnUpdate(deltaTime);
 
       // ── render game into fixed-resolution framebuffer ────────────
       m_Framebuffer->Bind();
-      glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+      glClearColor(m_ClearColor.r, m_ClearColor.g, m_ClearColor.b, m_ClearColor.a);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
       layer.OnRender(*m_Renderer);
+
+      // ── HUD pass — screen-space, same FBO, no resize boilerplate ─
+      m_Renderer->BeginScene(*m_HudCamera);
+      layer.OnHudRender(*m_Renderer);
+      m_Renderer->EndScene();
+
       m_Framebuffer->Unbind();
 
       // ── letterbox blit ───────────────────────────────────────────
@@ -215,6 +244,11 @@ namespace Marble {
       m_RenderWidth  = width;
       m_RenderHeight = height;
       m_Framebuffer->Resize(width, height);
+    }
+
+    if (m_HudCamera) {
+      m_HudCamera->SetProjection(0.0f, static_cast<float>(m_RenderWidth),
+                                 0.0f, static_cast<float>(m_RenderHeight));
     }
 
     if (m_Layer) {

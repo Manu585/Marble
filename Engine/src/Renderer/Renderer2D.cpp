@@ -1,10 +1,12 @@
 #include "Renderer2D.h"
 #include "Shader.h"
+#include "TextureRegion.h"
 
 #include <glad/glad.h>
-#include <glm/gtc/matrix_transform.hpp>
+#include <glm/glm.hpp>
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 
@@ -116,7 +118,7 @@ namespace Marble {
     d.BatchShader->Bind();
     int samplers[MAX_TEXTURE_SLOTS];
     for (int i = 0; i < MAX_TEXTURE_SLOTS; i++) samplers[i] = i;
-    glUniform1iv(glGetUniformLocation(d.BatchShader->GetID(), "u_Textures"), MAX_TEXTURE_SLOTS, samplers);
+    d.BatchShader->SetIntArray("u_Textures", samplers, MAX_TEXTURE_SLOTS);
   }
 
   Renderer2D::~Renderer2D() {
@@ -196,13 +198,27 @@ namespace Marble {
     d.QuadIndexCount += 6;
   }
 
-  // Slow path: rotated quad, requires a full transform matrix.
+  // Slow path: rotated quad, standard full-texture UVs.
   void Renderer2D::SubmitQuad(const glm::mat4& transform, const Color& color, float texIndex) {
     auto& d = *m_Data;
     for (int i = 0; i < 4; i++) {
       d.VertexPtr->Position = transform * s_QuadCorners[i];
       d.VertexPtr->Color    = color;
       d.VertexPtr->TexCoord = s_TexCoords[i];
+      d.VertexPtr->TexIndex = texIndex;
+      d.VertexPtr++;
+    }
+    d.QuadIndexCount += 6;
+  }
+
+  // Slow path: rotated quad with custom per-vertex UVs (used for rotated TextureRegion).
+  void Renderer2D::SubmitQuadUV(const glm::mat4& transform, const Color& color,
+                                 float texIndex, const glm::vec2 uvs[4]) {
+    auto& d = *m_Data;
+    for (int i = 0; i < 4; i++) {
+      d.VertexPtr->Position = transform * s_QuadCorners[i];
+      d.VertexPtr->Color    = color;
+      d.VertexPtr->TexCoord = uvs[i];
       d.VertexPtr->TexIndex = texIndex;
       d.VertexPtr++;
     }
@@ -221,10 +237,20 @@ namespace Marble {
   }
 
   glm::mat4 Renderer2D::BuildTransform(const glm::vec2& pos, const glm::vec2& size, float rotDeg) {
-    glm::mat4 t = glm::translate(glm::mat4(1.0f), { pos.x, pos.y, 0.0f });
-    t *= glm::rotate(glm::mat4(1.0f), glm::radians(rotDeg), { 0.0f, 0.0f, 1.0f });
-    t *= glm::scale(glm::mat4(1.0f), { size.x, size.y, 1.0f });
-    return t;
+    // Build the 2D TRS matrix (T * R * S) directly — no identity matrices, no multiplications.
+    // Column-major layout (GLM convention):
+    //   col 0:  ( cos*sx,  sin*sx, 0, 0 )
+    //   col 1:  (-sin*sy,  cos*sy, 0, 0 )
+    //   col 2:  (      0,       0, 1, 0 )
+    //   col 3:  (     tx,      ty, 0, 1 )
+    const float rad = glm::radians(rotDeg);
+    const float c = std::cos(rad), s = std::sin(rad);
+    return {
+      glm::vec4( c * size.x,  s * size.x, 0.0f, 0.0f),
+      glm::vec4(-s * size.y,  c * size.y, 0.0f, 0.0f),
+      glm::vec4( 0.0f,        0.0f,       1.0f, 0.0f),
+      glm::vec4( pos.x,       pos.y,      0.0f, 1.0f),
+    };
   }
 
   // ── DrawQuad overloads ───────────────────────────────────────────────────────
@@ -246,10 +272,36 @@ namespace Marble {
     SubmitQuad(BuildTransform(pos, size, rotDeg), tint, ResolveTextureSlot(texture.GetID()));
   }
 
-  // ── Glyph submission (custom UVs per vertex) ─────────────────────────────────
-  // Glyphs are never rotated, so use the direct (no-matrix) path with custom UVs.
-  void Renderer2D::SubmitGlyph(const glm::vec2& center, const glm::vec2& size,
-                                const Color& color, float texIndex, const glm::vec2 uvs[4]) {
+  // ── TextureRegion overloads ──────────────────────────────────────────────────
+
+  // Build the 4 per-vertex UVs for a TextureRegion.
+  // Layout matches s_QuadCorners: BL, BR, TR, TL.
+  static void BuildRegionUVs(const TextureRegion& region, glm::vec2 uvs[4]) {
+    uvs[0] = { region.UVMin.x, region.UVMin.y }; // BL
+    uvs[1] = { region.UVMax.x, region.UVMin.y }; // BR
+    uvs[2] = { region.UVMax.x, region.UVMax.y }; // TR
+    uvs[3] = { region.UVMin.x, region.UVMax.y }; // TL
+  }
+
+  void Renderer2D::DrawQuad(const glm::vec2& pos, const glm::vec2& size,
+                             const TextureRegion& region, const Color& tint) {
+    glm::vec2 uvs[4];
+    BuildRegionUVs(region, uvs);
+    SubmitQuadDirectUV(pos, size, tint, ResolveTextureSlot(region.Tex->GetID()), uvs);
+  }
+
+  void Renderer2D::DrawQuad(const glm::vec2& pos, const glm::vec2& size, float rotDeg,
+                             const TextureRegion& region, const Color& tint) {
+    glm::vec2 uvs[4];
+    BuildRegionUVs(region, uvs);
+    SubmitQuadUV(BuildTransform(pos, size, rotDeg), tint,
+                 ResolveTextureSlot(region.Tex->GetID()), uvs);
+  }
+
+  // Fast path: axis-aligned quad with custom per-vertex UVs.
+  // Used for font glyphs and TextureRegion quads (which are never axis-misaligned).
+  void Renderer2D::SubmitQuadDirectUV(const glm::vec2& center, const glm::vec2& size,
+                                      const Color& color, float texIndex, const glm::vec2 uvs[4]) {
     auto& d = *m_Data;
     const float hw = size.x * 0.5f;
     const float hh = size.y * 0.5f;
@@ -311,7 +363,7 @@ namespace Marble {
 
       // Skip invisible glyphs (e.g. space) — still advance the cursor
       if (sz.x > 0.0f && sz.y > 0.0f)
-        SubmitGlyph(center, sz, color, texSlot, uvs);
+        SubmitQuadDirectUV(center, sz, color, texSlot, uvs);
       cursorX += g->Advance * scale;
     }
   }

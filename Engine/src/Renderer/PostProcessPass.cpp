@@ -37,6 +37,12 @@ namespace Marble {
       "assets/shaders/postprocess.vert",
       "assets/shaders/postprocess.frag"
     );
+
+    // u_Screen always samples texture unit 0 — set once, never changes.
+    // Sampler uniforms are per-program state; they persist until the program
+    // is deleted or explicitly reassigned.
+    m_Shader->Bind();
+    m_Shader->SetInt("u_Screen", 0);
   }
 
   PostProcessPass::~PostProcessPass() {
@@ -49,7 +55,6 @@ namespace Marble {
     glBindTexture(GL_TEXTURE_2D, framebuffer.GetColorAttachment());
 
     m_Shader->Bind();
-    m_Shader->SetInt  ("u_Screen",           0);
     m_Shader->SetFloat("u_Time",             time);
     m_Shader->SetFloat("u_VignetteStrength", settings.VignetteStrength);
     m_Shader->SetFloat("u_Brightness",       settings.Brightness);

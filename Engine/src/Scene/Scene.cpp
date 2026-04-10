@@ -1,5 +1,6 @@
 #include "Scene.h"
 #include <algorithm>
+#include <unordered_set>
 
 namespace Marble {
 
@@ -19,13 +20,12 @@ namespace Marble {
   void Scene::FlushDestroyQueue() {
     if (m_PendingDestroy.empty()) return;
 
+    // Build a hash set for O(1) lookup per entity instead of O(m) linear scan.
+    const std::unordered_set<Entity*> deadSet(m_PendingDestroy.begin(), m_PendingDestroy.end());
     m_Entities.erase(
       std::remove_if(m_Entities.begin(), m_Entities.end(),
-        [this](const std::unique_ptr<Entity>& e) {
-          for (Entity* dead : m_PendingDestroy) {
-            if (e.get() == dead) return true;
-          }
-          return false;
+        [&deadSet](const std::unique_ptr<Entity>& e) {
+          return deadSet.count(e.get()) > 0;
         }),
       m_Entities.end()
     );

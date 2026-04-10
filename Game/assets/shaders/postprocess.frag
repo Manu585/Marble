@@ -20,11 +20,12 @@ void main() {
     float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
     color.rgb  = mix(vec3(gray), color.rgb, u_Saturation);
 
-    // Vignette: centered on the quad, strongest at corners
-    vec2  centered = (v_TexCoord - 0.5) * 2.0;
-    float dist     = dot(centered, centered);
-    float vignette = 1.0 - dist * u_VignetteStrength;
-    color.rgb     *= clamp(vignette, 0.0, 1.0);
+    // Vignette: circular smooth falloff, darkest at corners.
+    // dist is 0 at center, 1.0 at screen edge midpoints, ~1.41 at corners.
+    // smoothstep gives a soft transition instead of a hard linear cutoff.
+    float dist     = length(v_TexCoord - 0.5) * 2.0;
+    float vignette = 1.0 - u_VignetteStrength * smoothstep(0.5, 1.3, dist);
+    color.rgb     *= vignette;
 
     FragColor = color;
 }

@@ -2,7 +2,7 @@
 #include <cmath>
 #include <string>
 
-// ── Layout constants ─────────────────────────────────────────────────────────
+// ── Layout constants ──────────────────────────────────────────────────────────
 static const glm::vec2 PADDLE_SIZE  = { 20.0f, 140.0f };
 static const glm::vec2 BALL_SIZE    = { 18.0f,  18.0f };
 
@@ -17,7 +17,7 @@ static constexpr float BALL_SPEED_MAX     = 900.0f; // cap to keep it playable
 static constexpr float BALL_SPEED_INC     =  35.0f; // added per paddle bounce
 static constexpr float RESET_DELAY        =   1.2f; // seconds of pause after goal
 
-// ── Visual constants ──────────────────────────────────────────────────────────
+// ── Visual constants ───────────────────────────────────────────────────────────
 static constexpr float DASH_W   = 6.0f;
 static constexpr float DASH_H   = 24.0f;
 static constexpr float DASH_GAP = 14.0f;
@@ -25,15 +25,18 @@ static constexpr float DASH_GAP = 14.0f;
 static constexpr float SCORE_FONT_SIZE = 80.0f; // px, DroidSans looks great here
 static constexpr float SCORE_Y_FRAC    = 0.87f; // fraction of RH for baseline
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
 
 void PongGame::OnStart() {
   m_RW = static_cast<float>(App().GetRenderWidth());
   m_RH = static_cast<float>(App().GetRenderHeight());
 
   m_Camera = std::make_unique<Marble::OrthographicCamera>(0.0f, m_RW, 0.0f, m_RH);
-  m_HUD    = std::make_unique<Marble::HUD>(static_cast<int>(m_RW), static_cast<int>(m_RH));
   m_Font   = std::make_unique<Marble::Font>("assets/fonts/DroidSans.ttf", SCORE_FONT_SIZE);
+
+  m_SndPaddleHit = std::make_unique<Marble::Sound>("assets/audio/paddle_hit.wav");
+  m_SndWallHit   = std::make_unique<Marble::Sound>("assets/audio/wall_hit.wav");
+  m_SndScore     = std::make_unique<Marble::Sound>("assets/audio/score.wav");
 
   // Subtle post-process — keep it clean for Pong
   Marble::PostProcessSettings& pp = App().GetPostProcessSettings();
@@ -75,7 +78,7 @@ void PongGame::OnUpdate(float deltaTime) {
   // ── AI paddle (tracks ball Y with a speed cap) ────────────────────────────
   const float aiDelta = m_BallPos.y - m_AIPos.y;
   const float aiMove  = glm::clamp(aiDelta, -AI_SPEED * deltaTime, AI_SPEED * deltaTime);
-  m_AIPos.y = glm::clamp(m_AIPos.y + aiMove, halfPH, m_RH - halfPH);
+  m_AIPos.y           = glm::clamp(m_AIPos.y + aiMove, halfPH, m_RH - halfPH);
 
   // ── Ball movement ─────────────────────────────────────────────────────────
   m_BallPos += m_BallVel * deltaTime;
@@ -87,10 +90,12 @@ void PongGame::OnUpdate(float deltaTime) {
   if (m_BallPos.y - halfBH < 0.0f) {
     m_BallPos.y = halfBH;
     m_BallVel.y = std::abs(m_BallVel.y);
+    m_SndWallHit->Play();
   }
   if (m_BallPos.y + halfBH > m_RH) {
     m_BallPos.y = m_RH - halfBH;
     m_BallVel.y = -std::abs(m_BallVel.y);
+    m_SndWallHit->Play();
   }
 
   // ── Paddle collision ──────────────────────────────────────────────────────
@@ -115,6 +120,8 @@ void PongGame::OnUpdate(float deltaTime) {
       m_BallPos.x = paddle.Max().x + halfBW;
     else
       m_BallPos.x = paddle.Min().x - halfBW;
+
+    m_SndPaddleHit->Play();
   };
 
   bounceOffPaddle(playerBox, +1.0f); // player is on the left -> deflect rightward
@@ -123,9 +130,11 @@ void PongGame::OnUpdate(float deltaTime) {
   // ── Scoring ───────────────────────────────────────────────────────────────
   if (m_BallPos.x < 0.0f) {
     ++m_AIScore;
+    m_SndScore->Play();
     ResetBall(-1);
   } else if (m_BallPos.x > m_RW) {
     ++m_PlayerScore;
+    m_SndScore->Play();
     ResetBall(+1);
   }
 }
@@ -138,15 +147,22 @@ void PongGame::OnRender(Marble::Renderer2D& r) {
   r.DrawQuad(m_BallPos,   BALL_SIZE,   Marble::Colors::White);
   r.EndScene();
 
-  // HUD pass - screen-space, unaffected by the world camera
-  m_HUD->BeginRender(r);
+  // Debug hitboxes — rendered as wireframe rects, zero cost in release builds.
+  Marble::DebugDraw::Rect(Marble::AABB::FromCenter(m_PlayerPos, PADDLE_SIZE), Marble::Colors::Green);
+  Marble::DebugDraw::Rect(Marble::AABB::FromCenter(m_AIPos,     PADDLE_SIZE), Marble::Colors::Red);
+  Marble::DebugDraw::Rect(Marble::AABB::FromCenter(m_BallPos,   BALL_SIZE),   Marble::Colors::Cyan);
+  Marble::DebugDraw::Flush(*m_Camera);
+}
+
+void PongGame::OnHudRender(Marble::Renderer2D& r) {
   DrawScore(r);
-  m_HUD->EndRender(r);
 }
 
 void PongGame::OnStop() {
+  m_SndPaddleHit.reset();
+  m_SndWallHit.reset();
+  m_SndScore.reset();
   m_Font.reset();
-  m_HUD.reset();
   m_Camera.reset();
 }
 
@@ -154,7 +170,6 @@ void PongGame::OnResize() {
   m_RW = static_cast<float>(App().GetRenderWidth());
   m_RH = static_cast<float>(App().GetRenderHeight());
   m_Camera->SetProjection(0.0f, m_RW, 0.0f, m_RH);
-  m_HUD->Resize(static_cast<int>(m_RW), static_cast<int>(m_RH));
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
@@ -170,10 +185,8 @@ void PongGame::ResetBall(int scoringSide) {
   std::uniform_real_distribution<float> angleDist(-35.0f, 35.0f);
   const float angle = glm::radians(angleDist(m_Rng));
 
-  m_BallVel = {
-    dirX  * BALL_SPEED_INITIAL * std::cos(angle),
-             BALL_SPEED_INITIAL * std::sin(angle),
-  };
+  m_BallVel = { dirX  * BALL_SPEED_INITIAL * std::cos(angle),
+                BALL_SPEED_INITIAL * std::sin(angle), };
 
   m_Paused     = true;
   m_ResetTimer = RESET_DELAY;
@@ -182,9 +195,9 @@ void PongGame::ResetBall(int scoringSide) {
 void PongGame::DrawCenterLine(Marble::Renderer2D& r) const {
   static constexpr Marble::Color LINE_COLOR = { 1.0f, 1.0f, 1.0f, 0.25f };
 
-  const float x       = m_RW * 0.5f;
-  const float totalH  = DASH_H + DASH_GAP;
-  const int   dashes  = static_cast<int>(m_RH / totalH) + 1;
+  const float x      = m_RW * 0.5f;
+  const float totalH = DASH_H + DASH_GAP;
+  const int   dashes = static_cast<int>(m_RH / totalH) + 1;
 
   for (int i = 0; i < dashes; i++) {
     const float centerY = (i + 0.5f) * totalH - DASH_GAP * 0.5f;

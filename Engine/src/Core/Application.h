@@ -1,5 +1,7 @@
 #pragma once
 #include "GameLayer.h"
+#include "Color.h"
+#include "Renderer/Camera.h"
 #include "Renderer/Framebuffer.h"
 #include "Renderer/Renderer2D.h"
 #include "Renderer/PostProcessPass.h"
@@ -57,6 +59,10 @@ namespace Marble {
     // ── Time ─────────────────────────────────────────────────────────
     float GetTime() const { return m_Time; }
 
+    // ── Clear color ──────────────────────────────────────────────────
+    // Background color cleared before each game render. Default is a dark charcoal.
+    void SetClearColor(const Color& color) { m_ClearColor = color; }
+
     // ── Post-processing ──────────────────────────────────────────────
     PostProcessSettings& GetPostProcessSettings() { return m_PostProcessSettings; }
 
@@ -98,7 +104,9 @@ namespace Marble {
     std::unique_ptr<Renderer2D>      m_Renderer;
     std::unique_ptr<Framebuffer>     m_Framebuffer;
     std::unique_ptr<PostProcessPass> m_PostProcess;
+    std::unique_ptr<OrthographicCamera> m_HudCamera;   // screen-space, auto-managed
     PostProcessSettings              m_PostProcessSettings;
+    Color                            m_ClearColor = { 0.1f, 0.1f, 0.15f, 1.0f };
   };
 
 } // namespace Marble

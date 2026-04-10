@@ -15,6 +15,19 @@ add_library(stb STATIC
 )
 target_include_directories(stb PUBLIC vendor/stb vendor/imgui)
 
+# ---------------------------------------------------------------------------
+# miniaudio — single-header audio library.
+# Place vendor/miniaudio/miniaudio.h before building (download from miniaud.io).
+# ---------------------------------------------------------------------------
+add_library(miniaudio STATIC
+    vendor/miniaudio/miniaudio.cpp
+)
+target_include_directories(miniaudio PUBLIC vendor/miniaudio)
+# MSVC uses #pragma comment(lib, ...) for these; listed explicitly for other toolchains.
+if(WIN32)
+    target_link_libraries(miniaudio PUBLIC ole32 avrt)
+endif()
+
 add_subdirectory(vendor/glfw)
 add_subdirectory(vendor/glad)
 add_subdirectory(vendor/glm)

@@ -5,11 +5,12 @@
 
 class PongGame : public Marble::GameLayer {
 public:
-  void OnStart()                          override;
-  void OnUpdate(float dt)                 override;
-  void OnRender(Marble::Renderer2D& r)    override;
-  void OnStop()                           override;
-  void OnResize()                         override;
+  void OnStart()                             override;
+  void OnUpdate(float dt)                    override;
+  void OnRender(Marble::Renderer2D& r)       override;
+  void OnHudRender(Marble::Renderer2D& r)    override;
+  void OnStop()                              override;
+  void OnResize()                            override;
 
 private:
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -19,8 +20,11 @@ private:
 
   // ── Resources ─────────────────────────────────────────────────────────────
   std::unique_ptr<Marble::OrthographicCamera> m_Camera;
-  std::unique_ptr<Marble::HUD>                m_HUD;
   std::unique_ptr<Marble::Font>               m_Font;
+
+  std::unique_ptr<Marble::Sound> m_SndPaddleHit;
+  std::unique_ptr<Marble::Sound> m_SndWallHit;
+  std::unique_ptr<Marble::Sound> m_SndScore;
 
   // ── Game state ────────────────────────────────────────────────────────────
   float m_RW = 0.0f; // render width  (set in OnStart / OnResize)
