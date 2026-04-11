@@ -19,6 +19,11 @@ namespace Marble {
     RecalculateViewMatrix();
   }
 
+  void OrthographicCamera::SetPosition(const glm::vec2& position) {
+    m_Position = { position.x, position.y, 0.0f };
+    RecalculateViewMatrix();
+  }
+
   void OrthographicCamera::SetRotation(float degrees) {
     m_Rotation = degrees;
     RecalculateViewMatrix();

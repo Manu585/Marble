@@ -34,7 +34,7 @@ namespace Marble::DebugDraw {
   void Flush(const OrthographicCamera& camera);
 
   // ── Draw calls ────────────────────────────────────────────────────────────
-  void Line  (glm::vec2 from, glm::vec2 to,   const Color& color = Colors::Cyan);
+  void Line  (glm::vec2 from, glm::vec2 to,     const Color& color = Colors::Cyan);
   void Rect  (glm::vec2 center, glm::vec2 size, const Color& color = Colors::Cyan); // wireframe
   void Rect  (const AABB& aabb,                 const Color& color = Colors::Cyan);
   void Circle(glm::vec2 center, float radius,   const Color& color = Colors::Cyan, int segments = 24);

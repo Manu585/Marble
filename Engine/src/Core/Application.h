@@ -1,4 +1,5 @@
 #pragma once
+#include "Core/Window.h"
 #include "GameLayer.h"
 #include "Color.h"
 #include "Renderer/Camera.h"
@@ -11,46 +12,31 @@
 #include <vector>
 #include <memory>
 
-struct GLFWwindow;
-
 namespace Marble {
-
-  // Controls how the render framebuffer is scaled to the window.
-  // PixelArt — GL_NEAREST: crisp pixel-perfect upscaling (default)
-  // Smooth   — GL_LINEAR:  bilinear interpolation, for high-res / non-pixel-art games
-  enum class RenderStyle { PixelArt, Smooth };
-
-  struct WindowSpec {
-    const char* Title        = "Marble Engine";
-    int         Width        = 0;                // 0 = primary monitor width
-    int         Height       = 0;                // 0 = primary monitor height
-    bool        VSync        = true;
-    bool        Fullscreen   = false;
-    int         RenderWidth  = 0;
-    int         RenderHeight = 0;
-    uint32_t    TitleBarColor = 0x00111111;      // Title bar accent color (0x00RRGGBB). Windows 11+ only
-    RenderStyle Style        = RenderStyle::PixelArt;
-  };
 
   class Application {
   public:
     explicit Application(const WindowSpec& spec = {});
     ~Application();
 
-    Application(const Application&) = delete;
+    Application(const Application&)            = delete;
     Application& operator=(const Application&) = delete;
 
     void Run(GameLayer& layer);
 
     // ── Window ───────────────────────────────────────────────────────
-    void SetFullscreen(bool fullscreen);
-    void SetIcon(const std::string& path);
-    void SetIcon(const std::vector<std::string>& paths); // multi-size (16, 32, 64 …)
+    // Full window access for runtime setters (SetVSync, SetTitle, …).
+    Window&       GetWindow()       { return m_Window; }
+    const Window& GetWindow() const { return m_Window; }
 
-    int  GetWidth()     const { return m_Width;     }
-    int  GetHeight()    const { return m_Height;    }
-    bool IsMinimized()  const { return m_Minimized; }
-    bool IsFullscreen() const { return m_Fullscreen;}
+    // Convenience forwarding — equivalents of App().GetWindow().X()
+    void SetFullscreen(bool fullscreen)                         { m_Window.SetFullscreen(fullscreen);  }
+    bool IsFullscreen() const                                   { return m_Window.IsFullscreen();       }
+    bool IsMinimized()  const                                   { return m_Window.IsMinimized();        }
+    int  GetWidth()     const                                   { return m_Window.GetWidth();           }
+    int  GetHeight()    const                                   { return m_Window.GetHeight();          }
+    void SetIcon(const std::string& path)                       { m_Window.SetIcon(path);               }
+    void SetIcon(const std::vector<std::string>& paths)         { m_Window.SetIcon(paths);              }
 
     // ── Render target ────────────────────────────────────────────────
     int  GetRenderWidth()  const { return m_RenderWidth;  }
@@ -70,43 +56,46 @@ namespace Marble {
     struct Viewport { int X = 0, Y = 0, W = 0, H = 0; };
 
     void     OnResize(int width, int height);
-    void     ApplyDWMStyling() const;
     Viewport ComputeLetterboxViewport() const;
 
-    // ── GLFW callbacks ───────────────────────────────────────────────
-    static void OnWindowSizeChanged(GLFWwindow*, int w, int h);
-    static void OnWindowFocus      (GLFWwindow*, int focused);
-    static void OnWindowClose      (GLFWwindow*);
-    static void OnWindowMaximize   (GLFWwindow*, int maximized);
+    // ── Window (MUST be declared first — destroyed last, after all GL objects) ─
+    // C++ destroys members in reverse declaration order. Declaring Window first
+    // ensures the GL context outlives Renderer2D, Framebuffer, PostProcessPass,
+    // and all other OpenGL-owning objects that are declared below it.
+    Window m_Window;
 
-    // ── Window ───────────────────────────────────────────────────────
-    GLFWwindow* m_Window            = nullptr;
-    int         m_Width             = 0;
-    int         m_Height            = 0;
-    bool        m_Minimized         = false;
-    bool        m_Fullscreen        = false;
-    bool        m_FixedRenderSize   = false;
-    bool        m_WindowedMaximized = false;
-    int32_t     m_WindowedStyle     = 0; // stores Win32 GWL_STYLE (LONG, always 32-bit on MSVC)
-    int         m_WindowedX         = 0;
-    int         m_WindowedY         = 0;
-    int         m_WindowedWidth     = 0;
-    int         m_WindowedHeight    = 0;
-    int         m_RenderWidth       = 0;
-    int         m_RenderHeight      = 0;
-    uint32_t    m_TitleBarColor     = 0xFFFFFFFF;
+    // ── Render state ─────────────────────────────────────────────────
+    bool m_FixedRenderSize = false;
+    int  m_RenderWidth     = 0;
+    int  m_RenderHeight    = 0;
 
     // ── Game ─────────────────────────────────────────────────────────
     GameLayer* m_Layer = nullptr;
     float      m_Time  = 0.0f;
 
     // ── Renderer ─────────────────────────────────────────────────────
-    std::unique_ptr<Renderer2D>      m_Renderer;
-    std::unique_ptr<Framebuffer>     m_Framebuffer;
-    std::unique_ptr<PostProcessPass> m_PostProcess;
-    std::unique_ptr<OrthographicCamera> m_HudCamera;   // screen-space, auto-managed
-    PostProcessSettings              m_PostProcessSettings;
-    Color                            m_ClearColor = { 0.1f, 0.1f, 0.15f, 1.0f };
+    std::unique_ptr<Renderer2D>         m_Renderer;
+    std::unique_ptr<Framebuffer>        m_Framebuffer;
+    std::unique_ptr<PostProcessPass>    m_PostProcess;
+    std::unique_ptr<OrthographicCamera> m_HudCamera;
+    PostProcessSettings                 m_PostProcessSettings;
+    Color                               m_ClearColor = { 0.1f, 0.1f, 0.15f, 1.0f };
+
+#ifdef MARBLE_DEBUG
+    // ── Perf HUD (debug builds only) ─────────────────────────────────
+    void TickPerfHUD(float dt);
+
+    static constexpr int k_PerfSamples = 90;
+    float    m_FrameTimes[k_PerfSamples] = {};
+    int      m_PerfHead       = 0;
+    float    m_CpuUsagePct    = 0.0f;
+    uint64_t m_LastCpuTotal   = 0;
+    uint64_t m_LastWallTime   = 0;
+    float    m_StatPollTimer  = 0.0f;
+    float    m_RamUsageMB     = 0.0f;
+    int      m_NumCores       = 1;
+    bool     m_PerfHUDVisible = true;
+#endif
   };
 
 } // namespace Marble

@@ -1,7 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
-#include <dwmapi.h>
 
 #include "Application.h"
 #include "Input/Input.h"
@@ -9,22 +8,27 @@
 #include "Debug/DebugDraw.h"
 
 #include <glad/glad.h>
-#include <GLFW/glfw3.h>
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3native.h>
-#include <stb_image.h>
+#include <GLFW/glfw3.h>   // glfwGetTime(), glfwGetProcAddress
+#include <stb_image.h>    // stbi_set_flip_vertically_on_load
 #include <algorithm>
 #include <stdexcept>
-#include <vector>
 
 #ifdef _DEBUG
 #  include <cstdio>
 #endif
 
+#ifdef MARBLE_DEBUG
+#  include <imgui.h>
+#  include <imgui_impl_glfw.h>
+#  include <imgui_impl_opengl3.h>
+#  include <psapi.h>
+#endif
+
 namespace Marble {
 
-  Application::Application(const WindowSpec& spec) {
-
+  Application::Application(const WindowSpec& spec)
+    : m_Window(spec)
+  {
 #ifdef _DEBUG
     AllocConsole();
     FILE* f;
@@ -33,131 +37,72 @@ namespace Marble {
     std::printf("[Debug] Console attached\n");
 #endif
 
-    if (!glfwInit()) {
-      throw std::runtime_error("Failed to initialize GLFW");
-    }
-
-    // ── Detect primary monitor ────────────────────────────────────────────────
-    GLFWmonitor*       primary = glfwGetPrimaryMonitor();
-    const GLFWvidmode* vid     = primary ? glfwGetVideoMode(primary) : nullptr;
-
-    const int nativeW = vid ? vid->width  : 1920;
-    const int nativeH = vid ? vid->height : 1080;
-
-    // 0 == auto-detect from monitor
-    const int windowW = spec.Width  ? spec.Width  : nativeW;
-    const int windowH = spec.Height ? spec.Height : nativeH;
-
-    // Render resolution is fixed whenever the user supplies any dimension.
-    // Dynamic resize only happens when everything is left at 0.
-    m_FixedRenderSize = (spec.RenderWidth != 0 || spec.RenderHeight != 0 || spec.Width != 0 || spec.Height != 0);
-    m_RenderWidth     = spec.RenderWidth  ? spec.RenderWidth  : windowW;
-    m_RenderHeight    = spec.RenderHeight ? spec.RenderHeight : windowH;
-
-    // Windowed restore size = spec dimensions, centered.
-    // This is used both for F11 -> windowed and as the drag-restore size when
-    // un-maximizing by dragging the title bar.
-    m_WindowedWidth  = windowW;
-    m_WindowedHeight = windowH;
-    m_WindowedX      = (nativeW - m_WindowedWidth)  / 2;
-    m_WindowedY      = (nativeH - m_WindowedHeight) / 2;
-
-    // ── Create window ─────────────────────────────────────────────────────────
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    // Maximize on launch only when no explicit window size was requested.
-    // With an explicit size (e.g. 1280×720), the window should start at that
-    // size. Without one, it fills the monitor, so maximized is the right start.
-    const bool startMaximized = (spec.Width == 0 && spec.Height == 0 && !spec.Fullscreen);
-    glfwWindowHint(GLFW_MAXIMIZED, startMaximized ? GLFW_TRUE : GLFW_FALSE);
-
-    if (spec.Fullscreen && primary && vid) {
-      // True fullscreen at the monitor's native video mode, no border,
-      // no decoration, exclusive ownership of the display.
-      m_Fullscreen = true;
-      m_Window = glfwCreateWindow(vid->width, vid->height, spec.Title, primary, nullptr);
-    } else {
-      m_Window = glfwCreateWindow(windowW, windowH, spec.Title, nullptr, nullptr);
-    }
-
-    if (!m_Window) {
-      glfwTerminate();
-      throw std::runtime_error("Failed to create GLFW window");
-    }
-
-    glfwMakeContextCurrent(m_Window);
-    glfwSwapInterval(spec.VSync ? 1 : 0);
-
+    // Window constructor already called glfwMakeContextCurrent — context is live.
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
       throw std::runtime_error("Failed to initialize GLAD");
-    }
-
-    // OpenGL Callbacks for window actions
-    glfwSetWindowUserPointer     (m_Window, this);
-    glfwSetWindowSizeCallback    (m_Window, OnWindowSizeChanged);
-    glfwSetWindowFocusCallback   (m_Window, OnWindowFocus);
-    glfwSetWindowCloseCallback   (m_Window, OnWindowClose);
-    glfwSetWindowMaximizeCallback(m_Window, OnWindowMaximize);
-
-    m_TitleBarColor = spec.TitleBarColor;
-    ApplyDWMStyling();
-
-    // Seed the window's "normal" (restored) position so that dragging the title
-    // bar while maximized un-maximizes to our intended windowed size, not the
-    // full monitor size that GLFW_MAXIMIZED would otherwise leave as the default.
-    {
-      HWND hwnd = glfwGetWin32Window(m_Window);
-      WINDOWPLACEMENT wp = { sizeof(wp) };
-      GetWindowPlacement(hwnd, &wp);
-      wp.rcNormalPosition = {
-        m_WindowedX,
-        m_WindowedY,
-        m_WindowedX + m_WindowedWidth,
-        m_WindowedY + m_WindowedHeight
-      };
-      SetWindowPlacement(hwnd, &wp);
     }
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    // stb_image textures are loaded bottom-up (OpenGL convention). Icons loaded
+    // later via SetIcon use stbi_load too but GLFW doesn't care about orientation.
     stbi_set_flip_vertically_on_load(1);
 
-    // Set window handle for Input class
-    Input::SetWindowHandle(m_Window);
+    Input::SetWindowHandle(m_Window.GetHandle());
 
     Audio::Init();
     DebugDraw::Init();
 
-    m_Renderer    = std::make_unique<Renderer2D>();
-    m_Framebuffer = std::make_unique<Framebuffer>(m_RenderWidth, m_RenderHeight, spec.Style == RenderStyle::Smooth ? TextureFilter::Linear : TextureFilter::Nearest);
-    m_PostProcess = std::make_unique<PostProcessPass>();
-    m_HudCamera   = std::make_unique<OrthographicCamera>(0.0f, static_cast<float>(m_RenderWidth),
-                                                         0.0f, static_cast<float>(m_RenderHeight));
+#ifdef MARBLE_DEBUG
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags  |= ImGuiConfigFlags_NoMouseCursorChange; // don't override the game cursor
+    io.IniFilename   = nullptr;                               // don't write imgui.ini
+    ImGui::StyleColorsDark();
+    ImGui_ImplGlfw_InitForOpenGL(m_Window.GetHandle(), true);
+    ImGui_ImplOpenGL3_Init("#version 460");
 
-    // Sync m_Width/Height with the real framebuffer size.
-    // glfwGetFramebufferSize is used rather than spec dimensions because:
-    // 1. Fullscreen size is set by the video mode, not spec.Width/Height
-    // 2. HiDPI (Retina etc.) scales the framebuffer independently of logical px
-    int fbW;
-    int fbH;
-    glfwGetFramebufferSize(m_Window, &fbW, &fbH);
-    OnResize(fbW, fbH);
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    m_NumCores = std::max(1, static_cast<int>(si.dwNumberOfProcessors));
+#endif
+
+    // Render resolution is fixed whenever the user supplies any dimension.
+    // Dynamic resize only happens when everything is left at 0.
+    m_FixedRenderSize = (spec.RenderWidth != 0 || spec.RenderHeight != 0 ||
+                         spec.Width       != 0 || spec.Height      != 0);
+    m_RenderWidth     = spec.RenderWidth  ? spec.RenderWidth  : m_Window.GetWidth();
+    m_RenderHeight    = spec.RenderHeight ? spec.RenderHeight : m_Window.GetHeight();
+
+    m_Renderer    = std::make_unique<Renderer2D>();
+    m_Framebuffer = std::make_unique<Framebuffer>(m_RenderWidth, m_RenderHeight,
+                      spec.Style == RenderStyle::Smooth ? TextureFilter::Linear : TextureFilter::Nearest);
+    m_PostProcess = std::make_unique<PostProcessPass>();
+    m_HudCamera   = std::make_unique<OrthographicCamera>(
+                      0.0f, static_cast<float>(m_RenderWidth),
+                      0.0f, static_cast<float>(m_RenderHeight));
+
+    // Wire up resize notifications — Window fires this callback (with framebuffer
+    // dimensions) whenever the OS resizes the window.
+    m_Window.SetResizeCallback([this](int w, int h) { OnResize(w, h); });
   }
 
   Application::~Application() {
-    // Destroy OpenGL objects in reverse creation order while the GL context is
-    // still active (i.e. before glfwDestroyWindow kills it).
-    //   1. Renderer, Framebuffer, PostProcess — via unique_ptr (implicit)
-    //   2. DebugDraw  — owns its own VAO/VBO; must be freed before GL context dies
+    // Destroy ImGui and DebugDraw while the GL context is still alive.
+    // The unique_ptr<Renderer2D/Framebuffer/…> members are destroyed after this
+    // body runs (in reverse declaration order), but before m_Window — which is
+    // declared first and therefore destroyed last, keeping the context live
+    // for all GL object teardown.
+#ifdef MARBLE_DEBUG
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+#endif
     DebugDraw::Shutdown();
-
-    // Destroy the window and GL context. Audio doesn't touch GL, so it's
-    // safe to uninitialize after the context is gone.
-    glfwDestroyWindow(m_Window);
-    glfwTerminate();
     Audio::Shutdown();
+
 #ifdef _DEBUG
     FreeConsole();
 #endif
@@ -171,19 +116,13 @@ namespace Marble {
 
     float lastTime = static_cast<float>(glfwGetTime());
 
-    while (!glfwWindowShouldClose(m_Window)) {
-      glfwPollEvents();
+    while (!m_Window.ShouldClose()) {
+      m_Window.PollEvents();
 
-      int fbW;
-      int fbH;
-      glfwGetFramebufferSize(m_Window, &fbW, &fbH);
-      if (fbW != m_Width || fbH != m_Height) {
-        OnResize(fbW, fbH);
-      }
-
-      // PAUSE when minimized
-      if (m_Minimized) {
-        glfwWaitEvents();
+      // PAUSE when minimized — WaitEvents blocks until an event wakes us up,
+      // avoiding a busy-spin that would peg a CPU core while invisible.
+      if (m_Window.IsMinimized()) {
+        m_Window.WaitEvents();
         continue;
       }
 
@@ -192,11 +131,22 @@ namespace Marble {
       // window drag, OS sleep, debugger break, un-minimize — produces a massive
       // spike that explodes physics and gameplay state on the next frame.
       const float deltaTime = std::min(now - lastTime, 0.05f);
-      m_Time               += deltaTime;
-      lastTime              = now;
+      m_Time    += deltaTime;
+      lastTime   = now;
 
       DebugDraw::BeginFrame();
       Input::BeginFrame();
+
+#ifdef MARBLE_DEBUG
+      ImGui_ImplOpenGL3_NewFrame();
+      ImGui_ImplGlfw_NewFrame();
+      ImGui::NewFrame();
+      if (Input::IsKeyJustPressed(Key::F3)) {
+        m_PerfHUDVisible = !m_PerfHUDVisible;
+      }
+      TickPerfHUD(deltaTime);
+#endif
+
       layer.OnUpdate(deltaTime);
 
       // ── render game into fixed-resolution framebuffer ────────────
@@ -204,18 +154,12 @@ namespace Marble {
       glClearColor(m_ClearColor.r, m_ClearColor.g, m_ClearColor.b, m_ClearColor.a);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
       layer.OnRender(*m_Renderer);
-
-      // ── HUD pass — screen-space, same FBO, no resize boilerplate ─
-      m_Renderer->BeginScene(*m_HudCamera);
-      layer.OnHudRender(*m_Renderer);
-      m_Renderer->EndScene();
-
       m_Framebuffer->Unbind();
 
       // ── letterbox blit ───────────────────────────────────────────
       // Clear the window to black first (the bars), then restrict glViewport
       // to the aspect-correct rect so the post-process quad fills only that area.
-      glViewport(0, 0, m_Width, m_Height);
+      glViewport(0, 0, m_Window.GetWidth(), m_Window.GetHeight());
       glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
       glClear(GL_COLOR_BUFFER_BIT);
 
@@ -223,7 +167,22 @@ namespace Marble {
       glViewport(vp.X, vp.Y, vp.W, vp.H);
       m_PostProcess->Apply(*m_Framebuffer, m_PostProcessSettings, m_Time);
 
-      glfwSwapBuffers(m_Window);
+      // ── HUD pass — window framebuffer, letterbox viewport ────────
+      // Drawn after the post-process blit so text/UI is always at native screen
+      // resolution — crisp regardless of game FBO scale or GL_NEAREST upscaling.
+      m_Renderer->BeginScene(*m_HudCamera);
+      layer.OnHudRender(*m_Renderer);
+      m_Renderer->EndScene();
+
+#ifdef MARBLE_DEBUG
+      // ImGui renders directly into the window framebuffer, overlaying on top
+      // of the final post-processed frame.
+      glViewport(0, 0, m_Window.GetWidth(), m_Window.GetHeight());
+      ImGui::Render();
+      ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#endif
+
+      m_Window.SwapBuffers();
     }
 
     layer.OnStop();
@@ -234,9 +193,6 @@ namespace Marble {
   // ── Resize ───────────────────────────────────────────────────────────────────
   void Application::OnResize(int width, int height) {
     if (width == 0 || height == 0) return; // minimized or mid-transition, skip
-
-    m_Width  = width;
-    m_Height = height;
 
     // When no fixed render resolution was requested, grow the framebuffer to
     // match the window so the content always fills the entire client area.
@@ -257,152 +213,101 @@ namespace Marble {
   }
 
   Application::Viewport Application::ComputeLetterboxViewport() const {
-    const float targetAspect = static_cast<float>(m_RenderWidth) / static_cast<float>(m_RenderHeight);
-    const float windowAspect = static_cast<float>(m_Width) / static_cast<float>(m_Height);
+    const float targetAspect = static_cast<float>(m_RenderWidth)       / static_cast<float>(m_RenderHeight);
+    const float windowAspect = static_cast<float>(m_Window.GetWidth()) / static_cast<float>(m_Window.GetHeight());
 
-    Viewport vp{ 0, 0, m_Width, m_Height }; // X, Y, Width, Height
+    Viewport vp{ 0, 0, m_Window.GetWidth(), m_Window.GetHeight() };
     if (windowAspect > targetAspect) {
-      // Window is wider than target  -> black bars left and right
-      vp.W = static_cast<int>(m_Height * targetAspect);
-      vp.X = (m_Width - vp.W) / 2;
+      // Window is wider than target  → black bars left and right
+      vp.W = static_cast<int>(m_Window.GetHeight() * targetAspect);
+      vp.X = (m_Window.GetWidth() - vp.W) / 2;
     } else {
-      // Window is taller than target -> black bars top and bottom
-      vp.H = static_cast<int>(m_Width / targetAspect);
-      vp.Y = (m_Height - vp.H) / 2;
+      // Window is taller than target → black bars top and bottom
+      vp.H = static_cast<int>(m_Window.GetWidth() / targetAspect);
+      vp.Y = (m_Window.GetHeight() - vp.H) / 2;
     }
     return vp;
   }
 
-  // ── GLFW callbacks ───────────────────────────────────────────────────────────
-  void Application::OnWindowSizeChanged(GLFWwindow* window, int width, int height) {
-    Application* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+// ── Perf HUD (debug builds only) ─────────────────────────────────────────────
+#ifdef MARBLE_DEBUG
 
-    if (width == 0 || height == 0) {
-      app->m_Minimized = true;
-      return;
-    }
-    app->m_Minimized = false;
+  void Application::TickPerfHUD(float dt) {
+    // ── Record frame time into ring buffer ────────────────────────────────────
+    m_FrameTimes[m_PerfHead] = dt * 1000.0f; // store in ms
+    m_PerfHead = (m_PerfHead + 1) % k_PerfSamples;
 
-    int fbW;
-    int fbH;
-    glfwGetFramebufferSize(window, &fbW, &fbH);
-    app->OnResize(fbW, fbH);
-  }
+    // ── Sample CPU usage and RAM every 0.5 s ─────────────────────────────────
+    m_StatPollTimer += dt;
+    if (m_StatPollTimer >= 0.5f) {
+      m_StatPollTimer = 0.0f;
 
-  void Application::OnWindowMaximize(GLFWwindow* window, int /*maximized*/) {
-    Application* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+      FILETIME creation, exit, kernel, user;
+      FILETIME sysTime;
+      if (GetProcessTimes(GetCurrentProcess(), &creation, &exit, &kernel, &user)) {
+        auto ft64 = [](FILETIME ft) -> uint64_t {
+          return (static_cast<uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+        };
+        GetSystemTimeAsFileTime(&sysTime);
+        const uint64_t cpuNow  = ft64(kernel) + ft64(user);
+        const uint64_t wallNow = ft64(sysTime);
 
-    int fbW;
-    int fbH;
-    glfwGetFramebufferSize(window, &fbW, &fbH);
-    if (fbW == 0 || fbH == 0) return;
-
-    app->m_Minimized = false;
-    app->OnResize(fbW, fbH);
-  }
-
-  void Application::OnWindowFocus(GLFWwindow*, int) {}
-  void Application::OnWindowClose(GLFWwindow*)      {}
-
-  // ── Icon ─────────────────────────────────────────────────────────────────────
-  void Application::SetIcon(const std::string& path) {
-    SetIcon(std::vector<std::string>{ path });
-  }
-
-  void Application::SetIcon(const std::vector<std::string>& paths) {
-    std::vector<GLFWimage>      images;
-    std::vector<unsigned char*> pixelBuffers;
-
-    for (const auto& path : paths) {
-      int x;
-      int y;
-      int channels;
-      unsigned char* px = stbi_load(path.c_str(), &x, &y, &channels, 4);
-      if (!px) {
-        throw std::runtime_error("Failed to load icon: " + path);
+        if (m_LastWallTime > 0 && wallNow > m_LastWallTime) {
+          const uint64_t deltaCpu  = cpuNow  - m_LastCpuTotal;
+          const uint64_t deltaWall = wallNow - m_LastWallTime;
+          m_CpuUsagePct = static_cast<float>(deltaCpu)
+                        / (static_cast<float>(deltaWall) * static_cast<float>(m_NumCores))
+                        * 100.0f;
+          m_CpuUsagePct = std::min(m_CpuUsagePct, 100.0f);
+        }
+        m_LastCpuTotal = cpuNow;
+        m_LastWallTime = wallNow;
       }
-      images.push_back({ x, y, px });
-      pixelBuffers.push_back(px);
+
+      PROCESS_MEMORY_COUNTERS pmc{};
+      if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
+        m_RamUsageMB = static_cast<float>(pmc.WorkingSetSize) / (1024.0f * 1024.0f);
+      }
     }
 
-    glfwSetWindowIcon(m_Window, static_cast<int>(images.size()), images.data());
+    // ── Build ImGui overlay window ────────────────────────────────────────────
+    if (!m_PerfHUDVisible) return;
 
-    for (unsigned char* px : pixelBuffers) {
-      stbi_image_free(px);
+    float sum = 0.0f;
+    for (float t : m_FrameTimes) { sum += t; }
+    const float avgMs  = sum / static_cast<float>(k_PerfSamples);
+    const float avgFps = avgMs > 0.0f ? 1000.0f / avgMs : 0.0f;
+
+    constexpr ImGuiWindowFlags kFlags =
+      ImGuiWindowFlags_NoDecoration        |
+      ImGuiWindowFlags_NoInputs            |
+      ImGuiWindowFlags_NoNav               |
+      ImGuiWindowFlags_NoMove              |
+      ImGuiWindowFlags_NoSavedSettings     |
+      ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+    ImGui::SetNextWindowPos ({ 10.0f, 10.0f }, ImGuiCond_Always);
+    ImGui::SetNextWindowSize({ 260.0f, 0.0f }, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.65f);
+
+    if (ImGui::Begin("##PerfHUD", nullptr, kFlags)) {
+      ImGui::TextColored({ 0.4f, 1.0f, 0.4f, 1.0f },
+        "FPS   %.1f  (%.2f ms)", avgFps, avgMs);
+
+      const ImVec4 cpuColor = m_CpuUsagePct > 80.0f
+        ? ImVec4{ 1.0f, 0.35f, 0.35f, 1.0f }
+        : ImVec4{ 1.0f, 0.85f, 0.4f,  1.0f };
+      ImGui::TextColored(cpuColor,
+        "CPU   %.1f %%   |   RAM  %.1f MB", m_CpuUsagePct, m_RamUsageMB);
+
+      ImGui::PlotLines("##ft", m_FrameTimes, k_PerfSamples, m_PerfHead,
+                       nullptr, 0.0f, 33.4f, { 240.0f, 36.0f });
+
+      ImGui::TextDisabled("F3  toggle");
     }
+    ImGui::End();
   }
 
-  // ── DWM styling ──────────────────────────────────────────────────────────────
-  void Application::ApplyDWMStyling() const {
-    HWND hwnd = glfwGetWin32Window(m_Window);
-
-    BOOL darkMode = TRUE;
-    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &darkMode, sizeof(darkMode));
-
-    if (m_TitleBarColor != 0xFFFFFFFF) {
-      // WindowSpec stores 0x00RRGGBB
-      // COLORREF is       0x00BBGGRR
-      COLORREF color = RGB(
-        (m_TitleBarColor >> 16) & 0xFF,
-        (m_TitleBarColor >>  8) & 0xFF,
-         m_TitleBarColor        & 0xFF
-      );
-      DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &color, sizeof(color));
-    }
-  }
-
-  // ── Fullscreen ───────────────────────────────────────────────────────────────
-  void Application::SetFullscreen(bool fullscreen) {
-    if (m_Fullscreen == fullscreen) return;
-    m_Fullscreen = fullscreen;
-
-    HWND hwnd = glfwGetWin32Window(m_Window);
-
-    if (fullscreen) {
-      // ── Save windowed state ───────────────────────────────────────────────
-      m_WindowedMaximized = IsZoomed(hwnd) != 0;
-      m_WindowedStyle     = GetWindowLong(hwnd, GWL_STYLE);
-
-      // Always save the restored (non-maximized) position so it returns to the
-      // right size even if the window was maximized when F11 was pressed
-      WINDOWPLACEMENT wp = { sizeof(wp) };
-      GetWindowPlacement(hwnd, &wp);
-      m_WindowedX      = wp.rcNormalPosition.left;
-      m_WindowedY      = wp.rcNormalPosition.top;
-      m_WindowedWidth  = wp.rcNormalPosition.right  - wp.rcNormalPosition.left;
-      m_WindowedHeight = wp.rcNormalPosition.bottom - wp.rcNormalPosition.top;
-
-      // ── Go borderless ────────────────────────────────────────────────────
-      HMONITOR    hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-      MONITORINFO mi   = { sizeof(mi) };
-      GetMonitorInfo(hmon, &mi);
-
-      SetWindowLong(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
-      SetWindowPos(hwnd, HWND_TOP,
-        mi.rcMonitor.left,
-        mi.rcMonitor.top,
-        mi.rcMonitor.right  - mi.rcMonitor.left,
-        mi.rcMonitor.bottom - mi.rcMonitor.top,
-        SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-    } else {
-      // ── Restore windowed ─────────────────────────────────────────────────
-      // Apply DWM styling while the window is still WS_POPUP (no title bar).
-      // DWM attributes are per-HWND and persist across style changes, so when
-      // the title bar reappears it already has the correct color.
-      ApplyDWMStyling();
-
-      SetWindowLong(hwnd, GWL_STYLE, m_WindowedStyle);
-
-      WINDOWPLACEMENT wp = { sizeof(wp) };
-      GetWindowPlacement(hwnd, &wp);
-      wp.showCmd          = m_WindowedMaximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
-      wp.rcNormalPosition = { m_WindowedX, m_WindowedY,
-                              m_WindowedX + m_WindowedWidth,
-                              m_WindowedY + m_WindowedHeight };
-      SetWindowPlacement(hwnd, &wp);
-
-      SetForegroundWindow(hwnd);
-    }
-  }
+#endif // MARBLE_DEBUG
 
 } // namespace Marble

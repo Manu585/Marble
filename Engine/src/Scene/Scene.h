@@ -44,4 +44,4 @@ namespace Marble {
     OrthographicCamera*                  m_Camera = nullptr; // non-owning
   };
 
-}
+} // namespace Marble

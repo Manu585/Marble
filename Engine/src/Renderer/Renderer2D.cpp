@@ -12,6 +12,70 @@
 
 namespace Marble {
 
+  // ── Embedded batch shaders ───────────────────────────────────────────────────
+  // Batch shaders are engine-level infrastructure: they handle multi-texture
+  // batching and SDF font rendering — nothing game-specific. Embedding them
+  // means the engine is fully self-contained and does not depend on game assets.
+
+  static constexpr const char* k_BatchVertSrc = R"GLSL(
+#version 460 core
+layout(location = 0) in vec3  a_Position;
+layout(location = 1) in vec4  a_Color;
+layout(location = 2) in vec2  a_TexCoord;
+layout(location = 3) in float a_TexIndex;
+
+uniform mat4 u_ViewProjection;
+
+out vec4  v_Color;
+out vec2  v_TexCoord;
+out float v_TexIndex;
+
+void main() {
+    v_Color     = a_Color;
+    v_TexCoord  = a_TexCoord;
+    v_TexIndex  = a_TexIndex;
+    gl_Position = u_ViewProjection * vec4(a_Position, 1.0);
+}
+)GLSL";
+
+  static constexpr const char* k_BatchFragSrc = R"GLSL(
+#version 460 core
+in vec4  v_Color;
+in vec2  v_TexCoord;
+in float v_TexIndex;
+
+uniform sampler2D u_Textures[16];
+
+// Per-slot flag: 1 = this slot holds an SDF font atlas, 0 = regular texture.
+// Set by Renderer2D::DrawText for the resolved font atlas slot each batch.
+uniform int u_SDFSlots[16];
+
+out vec4 FragColor;
+
+void main() {
+    int  index   = int(v_TexIndex);
+    vec4 sampled = texture(u_Textures[index], v_TexCoord);
+
+    if (u_SDFSlots[index] != 0) {
+        // ── SDF font path ─────────────────────────────────────────────────────
+        // The font atlas stores a Signed Distance Field in the red channel,
+        // remapped to alpha via GL swizzle: sampled = (1, 1, 1, sdf_value).
+        // sdf_value is normalized to [0, 1]:
+        //   > 0.502  →  inside the glyph  (onedge = 128, 128/255 ≈ 0.502)
+        //   ≈ 0.502  →  exactly on the edge
+        //   < 0.502  →  outside the glyph
+        //
+        // smoothstep reconstructs a sharp, anti-aliased edge at any scale or
+        // sub-pixel position — unlike a plain coverage bitmap which blurs.
+        float alpha = smoothstep(0.45, 0.55, sampled.a);
+        FragColor   = vec4(v_Color.rgb, v_Color.a * alpha);
+    } else {
+        // ── Regular sprite / quad path ────────────────────────────────────────
+        FragColor = sampled * v_Color;
+    }
+}
+)GLSL";
+
   // ── Batch limits ─────────────────────────────────────────────────────────────
   static constexpr uint32_t MAX_QUADS         = 10'000;
   static constexpr uint32_t MAX_VERTICES      = MAX_QUADS * 4;
@@ -55,6 +119,7 @@ namespace Marble {
     uint32_t TextureSlotIndex = 1; // slot 0 reserved for WhiteTexture
 
     std::array<uint32_t, MAX_TEXTURE_SLOTS> TextureSlots{};
+    std::array<int,      MAX_TEXTURE_SLOTS> SDFSlots{};  // 1 = SDF font atlas, 0 = regular texture
     glm::mat4 ViewProjection{1.0f};
   };
 
@@ -114,7 +179,7 @@ namespace Marble {
     d.TextureSlots[0] = d.WhiteTexture;
 
     // ── Batch shader ─────────────────────────────────────────────
-    d.BatchShader = std::make_unique<Shader>("assets/shaders/batch.vert", "assets/shaders/batch.frag");
+    d.BatchShader = std::make_unique<Shader>(Shader::FromSource, k_BatchVertSrc, k_BatchFragSrc);
     d.BatchShader->Bind();
     int samplers[MAX_TEXTURE_SLOTS];
     for (int i = 0; i < MAX_TEXTURE_SLOTS; i++) samplers[i] = i;
@@ -141,6 +206,7 @@ namespace Marble {
     d.QuadIndexCount   = 0;
     d.VertexPtr        = d.VertexBuffer.get();
     d.TextureSlotIndex = 1;
+    d.SDFSlots.fill(0);
   }
 
   void Renderer2D::Flush() {
@@ -162,7 +228,8 @@ namespace Marble {
     }
 
     d.BatchShader->Bind();
-    d.BatchShader->SetMat4("u_ViewProjection", d.ViewProjection);
+    d.BatchShader->SetMat4     ("u_ViewProjection", d.ViewProjection);
+    d.BatchShader->SetIntArray ("u_SDFSlots",       d.SDFSlots.data(), MAX_TEXTURE_SLOTS);
 
     glBindVertexArray(d.VAO);
     glDrawElements(GL_TRIANGLES, d.QuadIndexCount, GL_UNSIGNED_INT, nullptr);
@@ -328,6 +395,9 @@ namespace Marble {
   void Renderer2D::DrawText(const Font& font, std::string_view text,
                             const glm::vec2& pos, float scale, const Color& color) {
     const float texSlot = ResolveTextureSlot(font.GetAtlasID());
+    // Mark this texture slot as an SDF atlas so the batch shader applies
+    // smoothstep edge reconstruction instead of raw alpha sampling.
+    m_Data->SDFSlots[static_cast<int>(texSlot)] = 1;
     float cursorX = pos.x;
 
     for (char c : text) {

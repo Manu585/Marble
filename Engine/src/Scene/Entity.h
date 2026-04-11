@@ -72,4 +72,4 @@ namespace Marble {
     std::unordered_map<std::type_index, std::unique_ptr<Component>> m_Components;
   };
 
-}
+} // namespace Marble

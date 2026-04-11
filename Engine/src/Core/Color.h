@@ -8,19 +8,19 @@ namespace Marble {
   using Color = glm::vec4;
 
   namespace Colors {
-    inline const Color White       = {1.00f, 1.00f, 1.00f, 1.0f};
-    inline const Color Black       = {0.00f, 0.00f, 0.00f, 1.0f};
-    inline const Color Transparent = {0.00f, 0.00f, 0.00f, 0.0f};
-    inline const Color Red         = {1.00f, 0.00f, 0.00f, 1.0f};
-    inline const Color Green       = {0.00f, 0.80f, 0.00f, 1.0f};
-    inline const Color Blue        = {0.00f, 0.40f, 1.00f, 1.0f};
-    inline const Color Yellow      = {1.00f, 1.00f, 0.00f, 1.0f};
-    inline const Color Cyan        = {0.00f, 1.00f, 1.00f, 1.0f};
-    inline const Color Magenta     = {1.00f, 0.00f, 1.00f, 1.0f};
-    inline const Color Orange      = {1.00f, 0.50f, 0.00f, 1.0f};
-    inline const Color Gray        = {0.50f, 0.50f, 0.50f, 1.0f};
-    inline const Color LightGray   = {0.75f, 0.75f, 0.75f, 1.0f};
-    inline const Color DarkGray    = {0.25f, 0.25f, 0.25f, 1.0f};
+    inline constexpr Color White       = {1.00f, 1.00f, 1.00f, 1.0f};
+    inline constexpr Color Black       = {0.00f, 0.00f, 0.00f, 1.0f};
+    inline constexpr Color Transparent = {0.00f, 0.00f, 0.00f, 0.0f};
+    inline constexpr Color Red         = {1.00f, 0.00f, 0.00f, 1.0f};
+    inline constexpr Color Green       = {0.00f, 0.80f, 0.00f, 1.0f};
+    inline constexpr Color Blue        = {0.00f, 0.40f, 1.00f, 1.0f};
+    inline constexpr Color Yellow      = {1.00f, 1.00f, 0.00f, 1.0f};
+    inline constexpr Color Cyan        = {0.00f, 1.00f, 1.00f, 1.0f};
+    inline constexpr Color Magenta     = {1.00f, 0.00f, 1.00f, 1.0f};
+    inline constexpr Color Orange      = {1.00f, 0.50f, 0.00f, 1.0f};
+    inline constexpr Color Gray        = {0.50f, 0.50f, 0.50f, 1.0f};
+    inline constexpr Color LightGray   = {0.75f, 0.75f, 0.75f, 1.0f};
+    inline constexpr Color DarkGray    = {0.25f, 0.25f, 0.25f, 1.0f};
   }
 
 } // namespace Marble

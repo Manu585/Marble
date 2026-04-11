@@ -59,12 +59,12 @@ void main() {
     bool Enabled = true;
   };
 
-  static DebugState* g_State = nullptr;
+  static std::unique_ptr<DebugState> g_State;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
   void Init() {
-    g_State = new DebugState();
+    g_State = std::make_unique<DebugState>();
 
     glGenVertexArrays(1, &g_State->VAO);
     glGenBuffers     (1, &g_State->VBO);
@@ -94,8 +94,7 @@ void main() {
     if (!g_State) return;
     glDeleteVertexArrays(1, &g_State->VAO);
     glDeleteBuffers     (1, &g_State->VBO);
-    delete g_State;
-    g_State = nullptr;
+    g_State.reset();
   }
 
   void BeginFrame() {

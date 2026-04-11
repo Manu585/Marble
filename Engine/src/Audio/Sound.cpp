@@ -1,4 +1,3 @@
-// miniaudio declarations only — implementation is in vendor/miniaudio/miniaudio.cpp.
 #include <miniaudio.h>
 
 #include "Sound.h"
@@ -24,10 +23,11 @@ namespace Marble {
 
   Sound::Sound(const std::string& path) : m_Impl(std::make_unique<Impl>()) {
     ma_engine* engine = GetAudioEngine();
-    if (!engine)
+    if (!engine) {
       throw std::runtime_error(
           "Sound: audio engine is not running. "
           "Ensure Application is constructed before creating Sound objects.");
+    }
 
     // MA_SOUND_FLAG_DECODE: decode the entire clip into memory at load time.
     // This trades a bit of memory for minimal latency on Play() — correct for

@@ -22,6 +22,7 @@ marble_configure_executable(Game
     WINDOW_HEIGHT   1080
     FULLSCREEN      FALSE
     VSYNC           TRUE
+    RENDER_STYLE    Smooth
 
     ICON_ICO        "${CMAKE_CURRENT_SOURCE_DIR}/assets/textures/icon/icon.ico"
     ICON_PNG        "${CMAKE_CURRENT_SOURCE_DIR}/assets/textures/icon/icon.png"

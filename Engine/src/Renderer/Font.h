@@ -42,8 +42,8 @@ namespace Marble {
     static constexpr int FIRST_CHAR = 32;   // ' '
     static constexpr int LAST_CHAR  = 126;  // '~'
     static constexpr int CHAR_COUNT = LAST_CHAR - FIRST_CHAR + 1;
-    static constexpr int ATLAS_W    = 512;
-    static constexpr int ATLAS_H    = 512;
+    static constexpr int ATLAS_W    = 1024;
+    static constexpr int ATLAS_H    = 1024;
 
     float    m_PixelHeight  = 0.0f;
     uint32_t m_AtlasTexture = 0;

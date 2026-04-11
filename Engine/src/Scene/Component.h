@@ -19,4 +19,4 @@ namespace Marble {
     Entity* m_Entity = nullptr;
   };
 
-}
+} // namespace Marble

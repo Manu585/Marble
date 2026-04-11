@@ -16,6 +16,7 @@ target_link_libraries(Engine
     PUBLIC  miniaudio
     PRIVATE imgui
     PRIVATE dwmapi
+    PRIVATE Psapi
 )
 
 target_compile_options(Engine PRIVATE

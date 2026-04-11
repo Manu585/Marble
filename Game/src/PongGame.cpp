@@ -3,8 +3,8 @@
 #include <string>
 
 // ── Layout constants ──────────────────────────────────────────────────────────
-static const glm::vec2 PADDLE_SIZE  = { 20.0f, 140.0f };
-static const glm::vec2 BALL_SIZE    = { 18.0f,  18.0f };
+static constexpr glm::vec2 PADDLE_SIZE  = { 20.0f, 140.0f };
+static constexpr glm::vec2 BALL_SIZE    = { 18.0f,  18.0f };
 
 // How far from the edge the paddle center sits
 static constexpr float PADDLE_MARGIN = 60.0f;
@@ -98,19 +98,30 @@ void PongGame::OnUpdate(float deltaTime) {
     m_SndWallHit->Play();
   }
 
-  // ── Paddle collision ──────────────────────────────────────────────────────
+  // ── Paddle collision (broad phase → narrow phase) ────────────────────────
+  //
+  // Entity IDs match the constants in PongGame.h member comment:
+  //   0 = player paddle,  1 = AI paddle,  2 = ball
+  //
+  // SpatialHashGrid::QueryPairs only fires the callback for pairs that share
+  // at least one grid cell, so the narrow-phase Overlaps() is called only
+  // when the ball is actually near a paddle — not every frame unconditionally.
+  static constexpr int kPlayer = 0;
+  static constexpr int kAI     = 1;
+  static constexpr int kBall   = 2;
+
   const Marble::AABB ballBox   = Marble::AABB::FromCenter(m_BallPos,   BALL_SIZE);
   const Marble::AABB playerBox = Marble::AABB::FromCenter(m_PlayerPos, PADDLE_SIZE);
   const Marble::AABB aiBox     = Marble::AABB::FromCenter(m_AIPos,     PADDLE_SIZE);
 
+  // Narrow-phase response — still an exact Overlaps() check, same logic as before.
   auto bounceOffPaddle = [&](const Marble::AABB& paddle, float outwardDir) {
     if (!ballBox.Overlaps(paddle)) return;
     if (m_BallVel.x * outwardDir >= 0.0f) return; // already moving away
 
-    // Increase speed on each bounce, capped at max
     const float speed   = glm::min(glm::length(m_BallVel) + BALL_SPEED_INC, BALL_SPEED_MAX);
     const float hitFrac = (m_BallPos.y - paddle.Center.y) / paddle.HalfSize.y; // [-1, 1]
-    const float angle   = hitFrac * glm::radians(60.0f); // ±60° deflection
+    const float angle   = hitFrac * glm::radians(60.0f);                        // ±60° deflection
 
     m_BallVel.x = outwardDir * speed * std::cos(angle);
     m_BallVel.y =              speed * std::sin(angle);
@@ -124,8 +135,24 @@ void PongGame::OnUpdate(float deltaTime) {
     m_SndPaddleHit->Play();
   };
 
-  bounceOffPaddle(playerBox, +1.0f); // player is on the left -> deflect rightward
-  bounceOffPaddle(aiBox,     -1.0f); // AI is on the right    -> deflect leftward
+  // Broad phase — insert all three objects and let the grid find candidates.
+  m_Grid.Clear();
+  m_Grid.Insert(kPlayer, playerBox);
+  m_Grid.Insert(kAI,     aiBox);
+  m_Grid.Insert(kBall,   ballBox);
+
+  // QueryPairs fires only for pairs that share a grid cell.
+  // We only care about ball↔paddle pairs; player↔AI never collide.
+  const Marble::AABB* paddles[2]    = { &playerBox, &aiBox };
+  const float         outwardDir[2] = { +1.0f,      -1.0f  };
+
+  m_Grid.QueryPairs([&](int a, int b) {
+    const bool aIsBall = (a == kBall);
+    const bool bIsBall = (b == kBall);
+    if (!aIsBall && !bIsBall) return;          // player↔AI — skip
+    const int paddleId = aIsBall ? b : a;
+    bounceOffPaddle(*paddles[paddleId], outwardDir[paddleId]);
+  });
 
   // ── Scoring ───────────────────────────────────────────────────────────────
   if (m_BallPos.x < 0.0f) {
@@ -159,6 +186,11 @@ void PongGame::OnHudRender(Marble::Renderer2D& r) {
 }
 
 void PongGame::OnStop() {
+  // Explicit resets are not strictly required — the destructor handles them.
+  // They're here as a reminder that Sound objects must outlive Application
+  // (which owns the audio engine). MARBLE_MAIN guarantees this via declaration
+  // order: Application is declared before the GameLayer, so GameLayer (and its
+  // Sounds) destruct first. The resets can safely be removed.
   m_SndPaddleHit.reset();
   m_SndWallHit.reset();
   m_SndScore.reset();

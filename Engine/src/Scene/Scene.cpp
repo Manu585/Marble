@@ -75,10 +75,12 @@ namespace Marble {
       const float     rotation = transform ? transform->Rotation : 0.0f;
       const glm::vec2 size     = sprite->Size * (transform ? transform->Scale : glm::vec2{ 1.0f, 1.0f });
 
-      if (sprite->Tex)
+      if (sprite->Tex) {
         renderer.DrawQuad(position, size, rotation, *sprite->Tex, sprite->Tint);
-      else
+      }
+      else {
         renderer.DrawQuad(position, size, rotation, sprite->Tint);
+      }
     }
 
     renderer.EndScene();

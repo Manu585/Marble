@@ -9,6 +9,8 @@ namespace Marble {
 
     void SetProjection(float left, float right, float bottom, float top);
     void SetPosition(const glm::vec3& position);
+    // 2D convenience: equivalent to SetPosition({position.x, position.y, 0.0f})
+    void SetPosition(const glm::vec2& position);
     void SetRotation(float degrees);
     // Sets both position and rotation in one call — avoids recalculating twice
     void SetTransform(const glm::vec3& position, float degrees = 0.0f);

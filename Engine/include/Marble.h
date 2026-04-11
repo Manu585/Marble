@@ -1,6 +1,7 @@
 #pragma once
 
 // Core
+#include "Core/Window.h"
 #include "Core/Application.h"
 #include "Core/GameLayer.h"
 #include "Core/Color.h"
@@ -23,6 +24,7 @@
 
 // Physics
 #include "Physics/Collision.h"
+#include "Physics/SpatialHash.h"
 
 // Input
 #include "Input/Input.h"

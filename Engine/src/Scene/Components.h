@@ -13,7 +13,7 @@ namespace Marble {
   };
 
   struct SpriteComponent : public Component {
-    Texture* Tex = nullptr;
+    const Texture* Tex = nullptr; // non-owning; texture lifetime must exceed entity lifetime
     glm::vec2 Size = { 64.0f, 64.0f };
     glm::vec4 Tint = { 1.0f, 1.0f, 1.0f, 1.0f };
     int       Layer = 0;
@@ -31,8 +31,8 @@ namespace Marble {
       if (!GetEntity().HasComponent<TransformComponent>()) return;
 
       auto& transform = GetEntity().GetComponent<TransformComponent>();
-      Camera->SetPosition({ transform.Position + Offset, 0.0f });
+      Camera->SetPosition(transform.Position + Offset);
     }
   };
 
-}
+} // namespace Marble

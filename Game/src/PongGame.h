@@ -44,4 +44,8 @@ private:
   bool  m_Paused     = false;
 
   std::mt19937 m_Rng{ std::random_device{}() };
+
+  // Broad-phase spatial hash — cell size ≈ 2× average object diameter.
+  // Entity IDs: 0 = player paddle, 1 = AI paddle, 2 = ball.
+  Marble::SpatialHashGrid<int> m_Grid{ 150.0f };
 };

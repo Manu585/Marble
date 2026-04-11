@@ -1,5 +1,3 @@
-// MINIAUDIO_IMPLEMENTATION is defined in vendor/miniaudio/miniaudio.cpp.
-// Here we only include the declarations.
 #include <miniaudio.h>
 
 #include "Audio.h"
@@ -25,8 +23,9 @@ namespace Marble {
     if (s_Initialized) return;
 
     const ma_result result = ma_engine_init(nullptr, &s_Engine);
-    if (result != MA_SUCCESS)
+    if (result != MA_SUCCESS) {
       throw std::runtime_error("Audio::Init — failed to initialize audio engine (miniaudio)");
+    }
 
     s_Initialized = true;
   }
@@ -41,8 +40,9 @@ namespace Marble {
 
   void Audio::SetMasterVolume(float volume) {
     s_MasterVolume = std::clamp(volume, 0.0f, 1.0f);
-    if (s_Initialized)
+    if (s_Initialized) {
       ma_engine_set_volume(&s_Engine, s_MasterVolume);
+    }
   }
 
   float Audio::GetMasterVolume() {
