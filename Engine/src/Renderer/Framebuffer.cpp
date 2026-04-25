@@ -1,5 +1,6 @@
 #include "Framebuffer.h"
 #include <glad/glad.h>
+#include <cstdio>
 #include <stdexcept>
 
 namespace Marble {
@@ -39,7 +40,12 @@ namespace Marble {
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, m_Width, m_Height);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_RBO);
 
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) throw std::runtime_error("Framebuffer is incomplete!");
+    const GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
+      char msg[64];
+      std::snprintf(msg, sizeof(msg), "Framebuffer is incomplete (status 0x%X)", fbStatus);
+      throw std::runtime_error(msg);
+    }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
   }

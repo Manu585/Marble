@@ -5,6 +5,7 @@
 #include "Renderer/Shader.h"
 #include <glad/glad.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <cmath>
@@ -155,7 +156,7 @@ void main() {
 
   void Circle(glm::vec2 center, float radius, const Color& color, int segments) {
     if (segments < 3) segments = 3;
-    const float step = 2.0f * 3.14159265358979f / static_cast<float>(segments);
+    const float step = 2.0f * glm::pi<float>() / static_cast<float>(segments);
     glm::vec2 prev = { center.x + radius, center.y };
     for (int i = 1; i <= segments; ++i) {
       const float angle = static_cast<float>(i) * step;

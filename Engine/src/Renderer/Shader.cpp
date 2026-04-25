@@ -3,8 +3,9 @@
 #include <glad/glad.h>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <cstdio>
 #include <fstream>
-#include <sstream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 
@@ -15,20 +16,14 @@ namespace Marble {
   std::string Shader::ReadFile(const std::string& path) {
     std::ifstream file(path);
     if (!file.is_open())
-      throw std::runtime_error("Failed to open shader file: " + path);
-
-    std::ostringstream ss;
-    ss << file.rdbuf();
-    std::string src = ss.str();
-
-    // Strip UTF-8 BOM if present (common when saving GLSL on Windows)
-    if (src.size() >= 3 &&
-        static_cast<unsigned char>(src[0]) == 0xEF &&
-        static_cast<unsigned char>(src[1]) == 0xBB &&
-        static_cast<unsigned char>(src[2]) == 0xBF)
-      src.erase(0, 3);
-
-    return src;
+      throw std::runtime_error("Failed to open shader: " + path);
+    std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    if (text.size() >= 3 &&
+        static_cast<unsigned char>(text[0]) == 0xEF &&
+        static_cast<unsigned char>(text[1]) == 0xBB &&
+        static_cast<unsigned char>(text[2]) == 0xBF)
+      text.erase(0, 3);
+    return text;
   }
 
   uint32_t Shader::CompileShader(uint32_t type, const std::string& src) {
@@ -107,6 +102,27 @@ namespace Marble {
     Link(vert, frag);
   }
 
+  // Compute-only program — single GL_COMPUTE_SHADER stage, no vert/frag pipeline.
+  Shader::Shader(ComputeTag, const char* computeSrc) {
+    const uint32_t comp = CompileShader(GL_COMPUTE_SHADER, computeSrc);
+    m_ID = glCreateProgram();
+    glAttachShader(m_ID, comp);
+    glLinkProgram(m_ID);
+    glDeleteShader(comp);
+
+    int success;
+    glGetProgramiv(m_ID, GL_LINK_STATUS, &success);
+    if (!success) {
+      int logLen = 0;
+      glGetProgramiv(m_ID, GL_INFO_LOG_LENGTH, &logLen);
+      std::string log(logLen, '\0');
+      glGetProgramInfoLog(m_ID, logLen, nullptr, log.data());
+      glDeleteProgram(m_ID);
+      m_ID = 0;
+      throw std::runtime_error("Compute shader link error: " + log);
+    }
+  }
+
   Shader::~Shader() {
     glDeleteProgram(m_ID);
   }
@@ -116,12 +132,20 @@ namespace Marble {
   void Shader::Bind()   const { glUseProgram(m_ID); }
   void Shader::Unbind() const { glUseProgram(0);    }
 
+  void Shader::Dispatch(uint32_t x, uint32_t y, uint32_t z) const {
+    glDispatchCompute(x, y, z);
+  }
+
   // ── Uniform setters ───────────────────────────────────────────────────────────
 
   int Shader::GetLocation(const char* name) const {
     auto it = m_LocationCache.find(name);
     if (it != m_LocationCache.end()) return it->second;
     const int loc = glGetUniformLocation(m_ID, name);
+#ifdef _DEBUG
+    if (loc == -1)
+      std::fprintf(stderr, "[Shader] uniform '%s' not found in program %u\n", name, m_ID);
+#endif
     m_LocationCache.emplace(name, loc);
     return loc;
   }

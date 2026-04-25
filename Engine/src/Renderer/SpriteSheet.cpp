@@ -1,4 +1,5 @@
 #include "SpriteSheet.h"
+#include <cassert>
 #include <stdexcept>
 
 namespace Marble {
@@ -31,6 +32,8 @@ namespace Marble {
   }
 
   TextureRegion SpriteSheet::GetFrame(int index) const {
+    assert(index >= 0 && "SpriteSheet::GetFrame: negative index");
+    assert(index < m_Cols * m_Rows && "SpriteSheet::GetFrame: index out of range");
     return GetFrame(index % m_Cols, index / m_Cols);
   }
 

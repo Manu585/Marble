@@ -14,7 +14,7 @@
 #     FULLSCREEN      TRUE
 #     RENDER_WIDTH    0                  # 0 = match window
 #     RENDER_HEIGHT   0                  # 0 = match window
-#     RENDER_STYLE    PixelArt           # PixelArt (GL_NEAREST) or Smooth (GL_LINEAR)
+#     RENDER_STYLE    PixelArt           # PixelArt (GL_NEAREST, default) or Smooth (GL_LINEAR)
 #
 #     # Icons
 #     ICON_ICO  "${CMAKE_CURRENT_SOURCE_DIR}/icon.ico"   # .exe icon  (Explorer / taskbar)
@@ -39,7 +39,7 @@ function(marble_configure_executable TARGET)
     cmake_parse_arguments(ARG
         ""
         "PRODUCT_NAME;COMPANY_NAME;COPYRIGHT;DESCRIPTION;VERSION;WINDOW_WIDTH;WINDOW_HEIGHT;VSYNC;FULLSCREEN;RENDER_WIDTH;RENDER_HEIGHT;RENDER_STYLE;ICON_ICO;ICON_PNG"
-        ""
+        "SPLASH_SCREENS"   # multi-value: groups of 4 — path fadeIn hold fadeOut
         ${ARGN}
     )
 
@@ -59,7 +59,7 @@ function(marble_configure_executable TARGET)
         set(ARG_DESCRIPTION "${ARG_PRODUCT_NAME}")
     endif()
     if(NOT ARG_VERSION)
-        set(ARG_VERSION "1.0.0.0")
+        set(ARG_VERSION "1.0.0")
     endif()
 
     # ------------------------------------------------------------------
@@ -98,10 +98,13 @@ function(marble_configure_executable TARGET)
     else()
         set(MARBLE_FULLSCREEN_BOOL "false")
     endif()
+    # RENDER_STYLE maps to Marble::TextureFilter:
+    #   PixelArt → Nearest (GL_NEAREST, crisp pixel edges — default)
+    #   Smooth   → Linear  (GL_LINEAR, bilinear interpolation)
     if(ARG_RENDER_STYLE STREQUAL "Smooth")
-        set(MARBLE_RENDER_STYLE "Smooth")
+        set(MARBLE_RENDER_STYLE "Linear")
     else()
-        set(MARBLE_RENDER_STYLE "PixelArt")
+        set(MARBLE_RENDER_STYLE "Nearest")
     endif()
 
     set(MARBLE_WINDOW_WIDTH  "${ARG_WINDOW_WIDTH}")
@@ -168,6 +171,48 @@ function(marble_configure_executable TARGET)
                 "  Add ICON_ICO to marble_configure_executable() once you have one.")
         endif()
         set(MARBLE_ICON_RC_LINE "// No .ico provided")
+    endif()
+
+    # ------------------------------------------------------------------
+    # Splash screens  (SPLASH_SCREENS — groups of 4: path fadeIn hold fadeOut)
+    #
+    # Example:
+    #   SPLASH_SCREENS
+    #       "assets/textures/company_logo.png" 0.6 1.5 0.6
+    #       "assets/textures/engine_logo.png"  0.4 1.2 0.4
+    #
+    # Generates a MakeSplashScreens() helper in GameMetadata.h that MARBLE_MAIN
+    # calls automatically — no manual main.cpp wiring required.
+    # ------------------------------------------------------------------
+    set(MARBLE_SPLASH_ENTRIES "")
+    if(ARG_SPLASH_SCREENS)
+        list(LENGTH ARG_SPLASH_SCREENS _splash_len)
+        math(EXPR _splash_rem "${_splash_len} % 4")
+        if(NOT _splash_rem EQUAL 0)
+            message(WARNING
+                "[MarbleEngine] SPLASH_SCREENS must be groups of 4 values: "
+                "path fadeIn hold fadeOut  (got ${_splash_len} values)")
+        endif()
+
+        math(EXPR _splash_count "${_splash_len} / 4")
+        set(_entries "")
+        set(_i 0)
+        while(_i LESS _splash_count)
+            math(EXPR _i0 "${_i} * 4 + 0")
+            math(EXPR _i1 "${_i} * 4 + 1")
+            math(EXPR _i2 "${_i} * 4 + 2")
+            math(EXPR _i3 "${_i} * 4 + 3")
+            list(GET ARG_SPLASH_SCREENS ${_i0} _path)
+            list(GET ARG_SPLASH_SCREENS ${_i1} _fin)
+            list(GET ARG_SPLASH_SCREENS ${_i2} _hold)
+            list(GET ARG_SPLASH_SCREENS ${_i3} _fout)
+            if(_entries)
+                string(APPEND _entries ", ")
+            endif()
+            string(APPEND _entries "{ \"${_path}\", ${_fin}f, ${_hold}f, ${_fout}f }")
+            math(EXPR _i "${_i} + 1")
+        endwhile()
+        set(MARBLE_SPLASH_ENTRIES "${_entries}")
     endif()
 
     # ------------------------------------------------------------------

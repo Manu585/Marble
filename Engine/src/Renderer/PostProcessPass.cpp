@@ -1,5 +1,6 @@
 #include "PostProcessPass.h"
 #include <glad/glad.h>
+#include <algorithm>
 
 namespace Marble {
 
@@ -102,12 +103,20 @@ void main() {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, framebuffer.GetColorAttachment());
 
+    // Clamp all settings to ranges that produce well-defined shader output.
+    // Values outside these ranges cause visual artifacts (blown-out brightness,
+    // inverted contrast, completely black vignette, etc.).
+    const float vignetteStrength = std::clamp(settings.VignetteStrength, 0.0f, 1.0f);
+    const float brightness       = std::clamp(settings.Brightness,       0.0f, 4.0f);
+    const float contrast         = std::clamp(settings.Contrast,         0.0f, 4.0f);
+    const float saturation       = std::clamp(settings.Saturation,       0.0f, 4.0f);
+
     m_Shader->Bind();
     m_Shader->SetFloat("u_Time",             time);
-    m_Shader->SetFloat("u_VignetteStrength", settings.VignetteStrength);
-    m_Shader->SetFloat("u_Brightness",       settings.Brightness);
-    m_Shader->SetFloat("u_Contrast",         settings.Contrast);
-    m_Shader->SetFloat("u_Saturation",       settings.Saturation);
+    m_Shader->SetFloat("u_VignetteStrength", vignetteStrength);
+    m_Shader->SetFloat("u_Brightness",       brightness);
+    m_Shader->SetFloat("u_Contrast",         contrast);
+    m_Shader->SetFloat("u_Saturation",       saturation);
 
     glBindVertexArray(m_VAO);
     glDrawArrays(GL_TRIANGLES, 0, 6);

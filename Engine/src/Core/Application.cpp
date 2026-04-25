@@ -1,5 +1,3 @@
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <windows.h>
 
 #include "Application.h"
@@ -77,8 +75,7 @@ namespace Marble {
     m_RenderHeight    = spec.RenderHeight ? spec.RenderHeight : m_Window.GetHeight();
 
     m_Renderer    = std::make_unique<Renderer2D>();
-    m_Framebuffer = std::make_unique<Framebuffer>(m_RenderWidth, m_RenderHeight,
-                      spec.Style == RenderStyle::Smooth ? TextureFilter::Linear : TextureFilter::Nearest);
+    m_Framebuffer = std::make_unique<Framebuffer>(m_RenderWidth, m_RenderHeight, spec.FramebufferFilter);
     m_PostProcess = std::make_unique<PostProcessPass>();
     m_HudCamera   = std::make_unique<OrthographicCamera>(
                       0.0f, static_cast<float>(m_RenderWidth),
@@ -108,16 +105,93 @@ namespace Marble {
 #endif
   }
 
+  void Application::SwitchLayer(GameLayer& next) {
+    m_PendingLayer = &next;
+  }
+
+  void Application::TickFrame(float dt) {
+    DebugDraw::BeginFrame();
+    Input::BeginFrame();
+
+#ifdef MARBLE_DEBUG
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    if (Input::IsKeyJustPressed(Key::F3)) {
+      m_PerfHUDVisible = !m_PerfHUDVisible;
+    }
+    TickPerfHUD(dt);
+#endif
+
+    m_Layer->OnUpdate(dt);
+
+    // ── render game into fixed-resolution framebuffer ────────────────────
+    m_Framebuffer->Bind();
+    glClearColor(m_ClearColor.r, m_ClearColor.g, m_ClearColor.b, m_ClearColor.a);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    m_Layer->OnRender(*m_Renderer);
+    m_Framebuffer->Unbind();
+
+    // ── letterbox blit ────────────────────────────────────────────────────
+    // Clear the window to black first (the bars), then restrict glViewport
+    // to the aspect-correct rect so the post-process quad fills only that area.
+    glViewport(0, 0, m_Window.GetWidth(), m_Window.GetHeight());
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    const Viewport vp = ComputeLetterboxViewport();
+    glViewport(vp.X, vp.Y, vp.W, vp.H);
+    m_PostProcess->Apply(*m_Framebuffer, m_PostProcessSettings, m_Time);
+
+    // ── HUD pass — window framebuffer, letterbox viewport ─────────────────
+    // Drawn after the post-process blit so text/UI is always at native screen
+    // resolution — crisp regardless of game FBO scale or GL_NEAREST upscaling.
+    m_Renderer->BeginScene(*m_HudCamera);
+    m_Layer->OnHudRender(*m_Renderer);
+    m_Renderer->EndScene();
+
+#ifdef MARBLE_DEBUG
+    // ImGui renders directly into the window framebuffer, overlaying on top
+    // of the final post-processed frame.
+    glViewport(0, 0, m_Window.GetWidth(), m_Window.GetHeight());
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#endif
+
+    m_Window.SwapBuffers();
+  }
+
   void Application::Run(GameLayer& layer) {
     m_Layer     = &layer;
     layer.m_App = this;
-
     layer.OnStart();
 
     float lastTime = static_cast<float>(glfwGetTime());
 
+    // During a title-bar drag, Windows enters a modal loop that swallows
+    // glfwPollEvents(). The subclassed WndProc fires WM_TIMER inside that
+    // modal loop — this callback keeps the game ticking at full frame rate.
+    m_Window.SetMoveTickCallback([this, &lastTime]() {
+      const float now = static_cast<float>(glfwGetTime());
+      const float dt  = std::min(now - lastTime, 0.05f);
+      m_Time   += dt;
+      lastTime  = now;
+      TickFrame(dt);
+    });
+
     while (!m_Window.ShouldClose()) {
       m_Window.PollEvents();
+
+      // ── Layer switch (queued by SwitchLayer during the previous frame) ───
+      if (m_PendingLayer) {
+        m_Layer->OnStop();
+        m_Layer->m_App = nullptr;
+        m_Layer        = m_PendingLayer;
+        m_PendingLayer = nullptr;
+        m_Layer->m_App = this;
+        m_Layer->OnStart();
+        lastTime = static_cast<float>(glfwGetTime()); // reset dt — no spike on switch
+      }
 
       // PAUSE when minimized — WaitEvents blocks until an event wakes us up,
       // avoiding a busy-spin that would peg a CPU core while invisible.
@@ -128,66 +202,19 @@ namespace Marble {
 
       const float now = static_cast<float>(glfwGetTime());
       // Cap deltaTime to 50 ms (≈20 FPS minimum). Without this, any stall —
-      // window drag, OS sleep, debugger break, un-minimize — produces a massive
-      // spike that explodes physics and gameplay state on the next frame.
+      // OS sleep, debugger break, un-minimize — produces a massive spike that
+      // explodes physics and gameplay state on the next frame.
       const float deltaTime = std::min(now - lastTime, 0.05f);
       m_Time    += deltaTime;
       lastTime   = now;
 
-      DebugDraw::BeginFrame();
-      Input::BeginFrame();
-
-#ifdef MARBLE_DEBUG
-      ImGui_ImplOpenGL3_NewFrame();
-      ImGui_ImplGlfw_NewFrame();
-      ImGui::NewFrame();
-      if (Input::IsKeyJustPressed(Key::F3)) {
-        m_PerfHUDVisible = !m_PerfHUDVisible;
-      }
-      TickPerfHUD(deltaTime);
-#endif
-
-      layer.OnUpdate(deltaTime);
-
-      // ── render game into fixed-resolution framebuffer ────────────
-      m_Framebuffer->Bind();
-      glClearColor(m_ClearColor.r, m_ClearColor.g, m_ClearColor.b, m_ClearColor.a);
-      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-      layer.OnRender(*m_Renderer);
-      m_Framebuffer->Unbind();
-
-      // ── letterbox blit ───────────────────────────────────────────
-      // Clear the window to black first (the bars), then restrict glViewport
-      // to the aspect-correct rect so the post-process quad fills only that area.
-      glViewport(0, 0, m_Window.GetWidth(), m_Window.GetHeight());
-      glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-      glClear(GL_COLOR_BUFFER_BIT);
-
-      const Viewport vp = ComputeLetterboxViewport();
-      glViewport(vp.X, vp.Y, vp.W, vp.H);
-      m_PostProcess->Apply(*m_Framebuffer, m_PostProcessSettings, m_Time);
-
-      // ── HUD pass — window framebuffer, letterbox viewport ────────
-      // Drawn after the post-process blit so text/UI is always at native screen
-      // resolution — crisp regardless of game FBO scale or GL_NEAREST upscaling.
-      m_Renderer->BeginScene(*m_HudCamera);
-      layer.OnHudRender(*m_Renderer);
-      m_Renderer->EndScene();
-
-#ifdef MARBLE_DEBUG
-      // ImGui renders directly into the window framebuffer, overlaying on top
-      // of the final post-processed frame.
-      glViewport(0, 0, m_Window.GetWidth(), m_Window.GetHeight());
-      ImGui::Render();
-      ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-#endif
-
-      m_Window.SwapBuffers();
+      TickFrame(deltaTime);
     }
 
-    layer.OnStop();
-    layer.m_App = nullptr;
-    m_Layer     = nullptr;
+    m_Window.SetMoveTickCallback(nullptr);
+    m_Layer->OnStop();
+    m_Layer->m_App = nullptr;
+    m_Layer        = nullptr;
   }
 
   // ── Resize ───────────────────────────────────────────────────────────────────

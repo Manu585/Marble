@@ -1,4 +1,5 @@
 #include "TextureRegion.h"
+#include <cassert>
 
 namespace Marble {
 
@@ -11,6 +12,10 @@ namespace Marble {
   TextureRegion::TextureRegion(const Texture& texture, int x, int y, int w, int h)
     : Tex(&texture)
   {
+    assert(w > 0 && h > 0 && "TextureRegion: width and height must be positive");
+    assert(x >= 0 && y >= 0 && "TextureRegion: origin must be non-negative");
+    assert(x + w <= texture.GetWidth()  && "TextureRegion: region exceeds texture width");
+    assert(y + h <= texture.GetHeight() && "TextureRegion: region exceeds texture height");
     // stbi_set_flip_vertically_on_load flips the image so that GL UV (0,0) is
     // at the bottom-left of the original image (i.e. the last row of pixels).
     //

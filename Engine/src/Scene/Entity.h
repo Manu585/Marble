@@ -33,6 +33,8 @@ namespace Marble {
       auto it = m_Components.find(std::type_index(typeid(T)));
       if (it == m_Components.end())
         throw std::runtime_error("Component not found on entity: " + m_Name);
+      assert(dynamic_cast<T*>(it->second.get()) != nullptr &&
+             "GetComponent: type_index key/value mismatch — map is corrupt");
       return static_cast<T&>(*it->second);
     }
 
@@ -41,6 +43,8 @@ namespace Marble {
       auto it = m_Components.find(std::type_index(typeid(T)));
       if (it == m_Components.end())
         throw std::runtime_error("Component not found on entity: " + m_Name);
+      assert(dynamic_cast<const T*>(it->second.get()) != nullptr &&
+             "GetComponent: type_index key/value mismatch — map is corrupt");
       return static_cast<const T&>(*it->second);
     }
 

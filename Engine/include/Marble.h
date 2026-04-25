@@ -4,6 +4,7 @@
 #include "Core/Window.h"
 #include "Core/Application.h"
 #include "Core/GameLayer.h"
+#include "Core/SplashLayer.h"
 #include "Core/Color.h"
 
 // Scene
@@ -21,6 +22,7 @@
 #include "Renderer/Font.h"
 #include "Renderer/Camera.h"
 #include "Renderer/PostProcessSettings.h"
+#include "Renderer/ParticleSystem.h"
 
 // Physics
 #include "Physics/Collision.h"

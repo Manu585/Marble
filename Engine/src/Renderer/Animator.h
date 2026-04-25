@@ -46,7 +46,7 @@ namespace Marble {
     // or nullptr if no clip is active or the active clip has no frames.
     const TextureRegion* GetCurrentFrame() const;
 
-    bool               IsPlaying()          const { return m_Current != nullptr; }
+    bool               IsPlaying()          const { return !m_CurrentName.empty(); }
 
     // True when a non-looping clip has played its last frame and stopped.
     // Stays true until Play() is called again.
@@ -55,8 +55,12 @@ namespace Marble {
     const std::string& GetCurrentClipName() const { return m_CurrentName; }
 
   private:
+    // Looks up the active clip by name on every access. This avoids storing a
+    // raw pointer into the unordered_map, which would dangle after any rehash
+    // caused by a subsequent AddClip() call.
+    const Clip* CurrentClip() const;
+
     std::unordered_map<std::string, Clip> m_Clips;
-    const Clip* m_Current     = nullptr;
     std::string m_CurrentName;
     float       m_Timer       = 0.0f;
     int         m_FrameIndex  = 0;

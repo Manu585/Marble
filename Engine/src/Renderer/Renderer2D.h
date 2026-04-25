@@ -8,6 +8,12 @@
 #include <memory>
 #include <string_view>
 
+// Win32 headers define DrawText as a macro (→ DrawTextA/DrawTextW).
+// Undefine it so Renderer2D::DrawText is not silently renamed at call sites.
+#ifdef DrawText
+#  undef DrawText
+#endif
+
 namespace Marble {
 
   // Batched 2D renderer. Application owns one instance and passes it by reference

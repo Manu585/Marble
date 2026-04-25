@@ -1,6 +1,7 @@
 #include "PongGame.h"
 #include <cmath>
 #include <string>
+#include <glm/gtc/constants.hpp>
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 static constexpr glm::vec2 PADDLE_SIZE  = { 20.0f, 140.0f };
@@ -31,22 +32,25 @@ void PongGame::OnStart() {
   m_RW = static_cast<float>(App().GetRenderWidth());
   m_RH = static_cast<float>(App().GetRenderHeight());
 
-  m_Camera = std::make_unique<Marble::OrthographicCamera>(0.0f, m_RW, 0.0f, m_RH);
-  m_Font   = std::make_unique<Marble::Font>("assets/fonts/DroidSans.ttf", SCORE_FONT_SIZE);
+  m_Camera    = std::make_unique<Marble::OrthographicCamera>(0.0f, m_RW, 0.0f, m_RH);
+  m_Font      = std::make_unique<Marble::Font>("assets/fonts/DroidSans.ttf", SCORE_FONT_SIZE);
+  m_Particles = std::make_unique<Marble::ParticleSystem>(16384);
 
   m_SndPaddleHit = std::make_unique<Marble::Sound>("assets/audio/paddle_hit.wav");
   m_SndWallHit   = std::make_unique<Marble::Sound>("assets/audio/wall_hit.wav");
   m_SndScore     = std::make_unique<Marble::Sound>("assets/audio/score.wav");
 
-  // Subtle post-process — keep it clean for Pong
+  // Richer post-process to complement the additive particle glow
   Marble::PostProcessSettings& pp = App().GetPostProcessSettings();
-  pp.VignetteStrength             = 0.15f;
-  pp.Contrast                     = 1.05f;
+  pp.VignetteStrength             = 0.30f;
+  pp.Contrast                     = 1.08f;
+  pp.Brightness                   = 0.95f;
 
   // Initial paddle positions
   m_PlayerPos = { PADDLE_MARGIN,        m_RH * 0.5f };
   m_AIPos     = { m_RW - PADDLE_MARGIN, m_RH * 0.5f };
 
+  EmitBackgroundNebula();
   ResetBall(0); // launch toward player first
 }
 
@@ -55,12 +59,18 @@ void PongGame::OnUpdate(float deltaTime) {
     App().SetFullscreen(!App().IsFullscreen());
   }
 
+  // Always advance the particle simulation — background nebula drifts even
+  // during the goal pause so the scene never looks frozen.
+  m_Particles->Update(deltaTime);
+
   // ── Goal pause ────────────────────────────────────────────────────────────
   if (m_Paused) {
     m_ResetTimer -= deltaTime;
     if (m_ResetTimer <= 0.0f) m_Paused = false;
     return;
   }
+
+  EmitBallTrail();
 
   // ── Player paddle (W / S  or  Up / Down) ──────────────────────────────────
   const float halfPH = PADDLE_SIZE.y * 0.5f;
@@ -133,6 +143,7 @@ void PongGame::OnUpdate(float deltaTime) {
       m_BallPos.x = paddle.Min().x - halfBW;
 
     m_SndPaddleHit->Play();
+    EmitPaddleSparks(m_BallPos, m_BallVel);
   };
 
   // Broad phase — insert all three objects and let the grid find candidates.
@@ -158,15 +169,20 @@ void PongGame::OnUpdate(float deltaTime) {
   if (m_BallPos.x < 0.0f) {
     ++m_AIScore;
     m_SndScore->Play();
+    EmitScoreExplosion(m_BallPos);
     ResetBall(-1);
   } else if (m_BallPos.x > m_RW) {
     ++m_PlayerScore;
     m_SndScore->Play();
+    EmitScoreExplosion(m_BallPos);
     ResetBall(+1);
   }
 }
 
 void PongGame::OnRender(Marble::Renderer2D& r) {
+  // Particles drawn first so game objects composite on top with standard blending.
+  m_Particles->Render(*m_Camera);
+
   r.BeginScene(*m_Camera);
   DrawCenterLine(r);
   r.DrawQuad(m_PlayerPos, PADDLE_SIZE, Marble::Colors::White);
@@ -195,6 +211,7 @@ void PongGame::OnStop() {
   m_SndWallHit.reset();
   m_SndScore.reset();
   m_Font.reset();
+  m_Particles.reset();
   m_Camera.reset();
 }
 
@@ -234,6 +251,148 @@ void PongGame::DrawCenterLine(Marble::Renderer2D& r) const {
   for (int i = 0; i < dashes; i++) {
     const float centerY = (i + 0.5f) * totalH - DASH_GAP * 0.5f;
     r.DrawQuad({ x, centerY }, { DASH_W, DASH_H }, LINE_COLOR);
+  }
+}
+
+// ── Particle emit helpers ─────────────────────────────────────────────────────
+
+void PongGame::EmitBallTrail() {
+  // Short-lived white-to-cyan sparks that trace the ball's path.
+  // Emitted every frame; low count keeps it subtle rather than overwhelming.
+  Marble::ParticleSystem::EmitParams p;
+  p.position            = m_BallPos;
+  // Trail emits opposite to travel direction so it streams behind the ball.
+  p.velocity            = -m_BallVel * 0.12f;
+  p.velocitySpreadAngle = glm::pi<float>() * 0.5f; // ±90° spread
+  p.speedSpread         = 30.0f;
+  p.colorStart          = { 1.0f, 1.0f, 1.0f, 0.85f };
+  p.colorEnd            = { 0.2f, 0.8f, 1.0f, 0.0f };
+  p.lifetimeMin         = 0.08f;
+  p.lifetimeMax         = 0.22f;
+  p.sizeStart           = 7.0f;
+  p.sizeEnd             = 0.0f;
+  p.drag                = 5.0f;
+  p.count               = 4;
+  m_Particles->Emit(p, m_Rng);
+}
+
+void PongGame::EmitPaddleSparks(glm::vec2 pos, glm::vec2 ballVel) {
+  // Bright burst in the outgoing ball direction — hot white core fading to orange.
+  Marble::ParticleSystem::EmitParams p;
+  p.position            = pos;
+  p.velocity            = ballVel * 0.55f;
+  p.velocitySpreadAngle = glm::radians(55.0f);
+  p.speedSpread         = 120.0f;
+  p.colorStart          = { 1.0f, 1.0f, 0.85f, 1.0f };
+  p.colorEnd            = { 1.0f, 0.35f, 0.0f, 0.0f };
+  p.lifetimeMin         = 0.25f;
+  p.lifetimeMax         = 0.55f;
+  p.sizeStart           = 12.0f;
+  p.sizeEnd             = 0.0f;
+  p.drag                = 3.5f;
+  p.count               = 90;
+  m_Particles->Emit(p, m_Rng);
+}
+
+void PongGame::EmitScoreExplosion(glm::vec2 pos) {
+  // Large omnidirectional burst. Three separate emits give colour variety:
+  // a bright white core, a cyan mid-ring, and an orange outer spray.
+  std::uniform_real_distribution<float> xDist(m_RW * 0.2f, m_RW * 0.8f);
+  std::uniform_real_distribution<float> yDist(m_RH * 0.2f, m_RH * 0.8f);
+  // Clamp pos to screen interior so the explosion is always visible.
+  pos.x = glm::clamp(pos.x, m_RW * 0.1f, m_RW * 0.9f);
+  pos.y = glm::clamp(pos.y, m_RH * 0.1f, m_RH * 0.9f);
+
+  // White core — dense, fast, short-lived
+  {
+    Marble::ParticleSystem::EmitParams p;
+    p.position            = pos;
+    p.velocity            = { 0.0f, 0.0f };
+    p.velocitySpreadAngle = glm::pi<float>();
+    p.speedSpread         = 480.0f;
+    p.colorStart          = { 1.0f, 1.0f, 1.0f, 1.0f };
+    p.colorEnd            = { 1.0f, 1.0f, 1.0f, 0.0f };
+    p.lifetimeMin         = 0.25f;
+    p.lifetimeMax         = 0.50f;
+    p.sizeStart           = 14.0f;
+    p.sizeEnd             = 0.0f;
+    p.drag                = 2.8f;
+    p.count               = 120;
+    m_Particles->Emit(p, m_Rng);
+  }
+
+  // Cyan ring — slower, larger, drifts outward
+  {
+    Marble::ParticleSystem::EmitParams p;
+    p.position            = pos;
+    p.velocity            = { 0.0f, 0.0f };
+    p.velocitySpreadAngle = glm::pi<float>();
+    p.speedSpread         = 260.0f;
+    p.colorStart          = { 0.2f, 0.9f, 1.0f, 0.9f };
+    p.colorEnd            = { 0.0f, 0.4f, 0.8f, 0.0f };
+    p.lifetimeMin         = 0.55f;
+    p.lifetimeMax         = 1.10f;
+    p.sizeStart           = 18.0f;
+    p.sizeEnd             = 2.0f;
+    p.drag                = 1.6f;
+    p.count               = 100;
+    m_Particles->Emit(p, m_Rng);
+  }
+
+  // Orange embers — slow, survive longest, drift gently
+  {
+    Marble::ParticleSystem::EmitParams p;
+    p.position            = pos;
+    p.velocity            = { 0.0f, 60.0f }; // slight upward bias
+    p.velocitySpreadAngle = glm::pi<float>();
+    p.speedSpread         = 140.0f;
+    p.colorStart          = { 1.0f, 0.5f, 0.1f, 0.8f };
+    p.colorEnd            = { 0.8f, 0.1f, 0.0f, 0.0f };
+    p.lifetimeMin         = 0.80f;
+    p.lifetimeMax         = 1.60f;
+    p.sizeStart           = 10.0f;
+    p.sizeEnd             = 0.0f;
+    p.drag                = 1.0f;
+    p.count               = 80;
+    m_Particles->Emit(p, m_Rng);
+  }
+}
+
+void PongGame::EmitBackgroundNebula() {
+  // Sparse, very large, very slow drifting particles that persist throughout
+  // the match. They are barely visible individually but collectively create
+  // a subtle depth and atmosphere behind the action.
+  std::uniform_real_distribution<float> xDist(0.0f, m_RW);
+  std::uniform_real_distribution<float> yDist(0.0f, m_RH);
+  std::uniform_real_distribution<float> hueDist(0.0f, 1.0f);
+
+  static constexpr int kNebula = 160;
+  for (int i = 0; i < kNebula; ++i) {
+    // Construct a random warm/cool colour for each nebula particle independently.
+    const float hue = hueDist(m_Rng);
+    glm::vec4 color;
+    if (hue < 0.33f) {
+      color = { 0.2f, 0.4f, 1.0f, 0.18f }; // blue
+    } else if (hue < 0.66f) {
+      color = { 0.6f, 0.1f, 0.8f, 0.14f }; // purple
+    } else {
+      color = { 0.0f, 0.7f, 0.6f, 0.12f }; // teal
+    }
+
+    Marble::ParticleSystem::EmitParams p;
+    p.position            = { xDist(m_Rng), yDist(m_Rng) };
+    p.velocity            = { 0.0f, 0.0f };
+    p.velocitySpreadAngle = glm::pi<float>();
+    p.speedSpread         = 18.0f;
+    p.colorStart          = color;
+    p.colorEnd            = { color.r, color.g, color.b, 0.0f };
+    p.lifetimeMin         = 6.0f;
+    p.lifetimeMax         = 12.0f;
+    p.sizeStart           = 90.0f;
+    p.sizeEnd             = 40.0f;
+    p.drag                = 0.3f;
+    p.count               = 1;
+    m_Particles->Emit(p, m_Rng);
   }
 }
 

@@ -20,7 +20,13 @@ target_link_libraries(Engine
 )
 
 target_compile_options(Engine PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/W4 /wd4100>
+    $<$<CXX_COMPILER_ID:MSVC>:
+        /W4         # high warning level
+        /wd4100     # suppress: unreferenced formal parameter (common in virtual overrides)
+        /MP         # parallel compilation across TUs
+        /permissive-  # strict standard conformance (catches implicit conversions, bad casts)
+        /Zc:__cplusplus # report correct __cplusplus value (MSVC lies without this)
+    >
 )
 
 # MARBLE_DEBUG is defined for Debug builds only. It enables DebugDraw and other
@@ -28,4 +34,6 @@ target_compile_options(Engine PRIVATE
 # zero runtime cost.
 target_compile_definitions(Engine PUBLIC
     $<$<CONFIG:Debug>:MARBLE_DEBUG>
+    WIN32_LEAN_AND_MEAN
+    NOMINMAX
 )

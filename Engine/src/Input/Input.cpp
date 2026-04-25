@@ -1,5 +1,6 @@
 #include "Input.h"
 #include <GLFW/glfw3.h>
+#include <cassert>
 
 namespace Marble {
 
@@ -16,6 +17,7 @@ namespace Marble {
   }
 
   void Input::BeginFrame() {
+    assert(s_Window != nullptr && "Input::BeginFrame called before SetWindowHandle");
     s_PrevKeys  = s_Keys;
     s_PrevMouse = s_Mouse;
 

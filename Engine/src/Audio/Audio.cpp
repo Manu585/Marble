@@ -22,7 +22,8 @@ namespace Marble {
   void Audio::Init() {
     if (s_Initialized) return;
 
-    const ma_result result = ma_engine_init(nullptr, &s_Engine);
+    ma_engine_config config = ma_engine_config_init();
+    const ma_result result = ma_engine_init(&config, &s_Engine);
     if (result != MA_SUCCESS) {
       throw std::runtime_error("Audio::Init — failed to initialize audio engine (miniaudio)");
     }

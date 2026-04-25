@@ -18,9 +18,16 @@ private:
   void DrawCenterLine(Marble::Renderer2D& r) const;
   void DrawScore(Marble::Renderer2D& r) const;
 
+  // ── Particle helpers ─────────────────────────────────────────────────────
+  void EmitBallTrail();
+  void EmitPaddleSparks(glm::vec2 pos, glm::vec2 ballVel);
+  void EmitScoreExplosion(glm::vec2 pos);
+  void EmitBackgroundNebula();
+
   // ── Resources ─────────────────────────────────────────────────────────────
   std::unique_ptr<Marble::OrthographicCamera> m_Camera;
   std::unique_ptr<Marble::Font>               m_Font;
+  std::unique_ptr<Marble::ParticleSystem>     m_Particles;
 
   std::unique_ptr<Marble::Sound> m_SndPaddleHit;
   std::unique_ptr<Marble::Sound> m_SndWallHit;

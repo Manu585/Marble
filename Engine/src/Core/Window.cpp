@@ -1,10 +1,9 @@
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <windows.h>
 #include <dwmapi.h>
 
 #include "Window.h"
 #include <stb_image.h>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -102,9 +101,26 @@ namespace Marble {
     // 1. Fullscreen size is determined by the video mode, not spec dimensions
     // 2. HiDPI (Retina etc.) scales the framebuffer independently of logical px
     glfwGetFramebufferSize(m_Handle, &m_Width, &m_Height);
+
+    // ── Subclass Win32 WndProc ────────────────────────────────────────────────
+    // When the user drags the title bar, Windows enters a modal message loop that
+    // swallows control from glfwPollEvents(). Our subclassed proc fires a WM_TIMER
+    // so Application::TickFrame() keeps running — the game never freezes.
+    {
+      HWND hwnd = glfwGetWin32Window(m_Handle);
+      SetProp(hwnd, "MarbleWindow", reinterpret_cast<HANDLE>(this));
+      m_OrigWndProc = reinterpret_cast<WNDPROC>(
+          SetWindowLongPtr(hwnd, GWLP_WNDPROC,
+                           reinterpret_cast<LONG_PTR>(&Window::SubclassWndProc)));
+    }
   }
 
   Window::~Window() {
+    HWND hwnd = glfwGetWin32Window(m_Handle);
+    if (m_OrigWndProc)
+      SetWindowLongPtr(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(m_OrigWndProc));
+    RemoveProp(hwnd, "MarbleWindow");
+
     glfwDestroyWindow(m_Handle);
     glfwTerminate();
   }
@@ -134,24 +150,23 @@ namespace Marble {
   }
 
   void Window::SetIcon(const std::vector<std::string>& paths) {
-    std::vector<GLFWimage>      images;
-    std::vector<unsigned char*> pixelBuffers;
+    using StbiPtr = std::unique_ptr<unsigned char, void(*)(void*)>;
+
+    std::vector<StbiPtr>   pixelBuffers;
+    std::vector<GLFWimage> images;
+    pixelBuffers.reserve(paths.size());
+    images.reserve(paths.size());
 
     for (const auto& path : paths) {
       int x, y, channels;
       unsigned char* px = stbi_load(path.c_str(), &x, &y, &channels, 4);
-      if (!px) {
+      if (!px)
         throw std::runtime_error("Failed to load icon: " + path);
-      }
       images.push_back({ x, y, px });
-      pixelBuffers.push_back(px);
+      pixelBuffers.emplace_back(px, stbi_image_free);
     }
 
     glfwSetWindowIcon(m_Handle, static_cast<int>(images.size()), images.data());
-
-    for (unsigned char* px : pixelBuffers) {
-      stbi_image_free(px);
-    }
   }
 
   // ── DWM styling ───────────────────────────────────────────────────────────────
@@ -267,5 +282,28 @@ namespace Marble {
   // use (e.g. pausing audio on focus loss, confirming quit). No-ops for now.
   void Window::OnWindowFocus(GLFWwindow*, int) {}
   void Window::OnWindowClose(GLFWwindow*)      {}
+
+  // ── Win32 WndProc subclass ────────────────────────────────────────────────────
+  static constexpr UINT_PTR k_MoveTimerID = 1;
+
+  LRESULT CALLBACK Window::SubclassWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    Window* win = reinterpret_cast<Window*>(GetProp(hwnd, "MarbleWindow"));
+
+    if (msg == WM_ENTERSIZEMOVE) {
+      // Start a 1ms timer — Windows will fire WM_TIMER once per timer resolution
+      // tick (~15ms on most systems) inside the modal drag loop.
+      SetTimer(hwnd, k_MoveTimerID, 1, nullptr);
+    } else if (msg == WM_EXITSIZEMOVE) {
+      KillTimer(hwnd, k_MoveTimerID);
+    } else if (msg == WM_TIMER && static_cast<UINT_PTR>(wp) == k_MoveTimerID) {
+      if (win && win->m_MoveTickCallback)
+        win->m_MoveTickCallback();
+      return 0;
+    }
+
+    return win && win->m_OrigWndProc
+        ? CallWindowProc(win->m_OrigWndProc, hwnd, msg, wp, lp)
+        : DefWindowProc(hwnd, msg, wp, lp);
+  }
 
 } // namespace Marble

@@ -1,4 +1,6 @@
 #pragma once
+#include "Renderer/Texture.h"
+#include <windows.h>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -8,21 +10,19 @@ struct GLFWwindow; // opaque GLFW type — forward declaration avoids leaking GL
 
 namespace Marble {
 
-  // Controls how the render framebuffer is scaled to the window.
-  // PixelArt — GL_NEAREST: crisp pixel-perfect upscaling (default)
-  // Smooth   — GL_LINEAR:  bilinear interpolation, for high-res / non-pixel-art games
-  enum class RenderStyle { PixelArt, Smooth };
-
   struct WindowSpec {
-    const char* Title         = "";               // required — set via marble_configure_executable()
-    int         Width         = 0;                // 0 = primary monitor width
-    int         Height        = 0;                // 0 = primary monitor height
-    bool        VSync         = false;
-    bool        Fullscreen    = false;
-    int         RenderWidth   = 0;                // 0 = match window size
-    int         RenderHeight  = 0;                // 0 = match window size
-    uint32_t    TitleBarColor = 0x00111111;       // 0x00RRGGBB, Windows 11+ only
-    RenderStyle Style         = RenderStyle::PixelArt;
+    const char*   Title           = "";                       // set via marble_configure_executable()
+    int           Width           = 0;                        // 0 = primary monitor width
+    int           Height          = 0;                        // 0 = primary monitor height
+    bool          VSync           = true;
+    bool          Fullscreen      = false;
+    int           RenderWidth     = 0;                        // 0 = match window size
+    int           RenderHeight    = 0;                        // 0 = match window size
+    uint32_t      TitleBarColor   = 0x00111111;               // 0x00RRGGBB, Windows 11+ only
+    // Filter applied when blitting the render FBO to the window.
+    // Nearest = crisp pixel-perfect upscaling (correct for pixel-art games).
+    // Linear  = bilinear interpolation (for hi-res or non-pixel-art games).
+    TextureFilter FramebufferFilter = TextureFilter::Nearest;
   };
 
   // Owns the OS window, GL context, and all GLFW/Win32 windowing state.
@@ -31,7 +31,9 @@ namespace Marble {
   class Window {
   public:
     // Fires with framebuffer dimensions whenever the window is resized.
-    using ResizeCallback = std::function<void(int w, int h)>;
+    using ResizeCallback    = std::function<void(int w, int h)>;
+    // Fires once per WM_TIMER tick during a title-bar drag (keeps game loop alive).
+    using MoveTickCallback  = std::function<void()>;
 
     explicit Window(const WindowSpec& spec);
     ~Window();
@@ -63,16 +65,21 @@ namespace Marble {
     GLFWwindow* GetHandle() const { return m_Handle; }
 
     // Called on every resize with the new framebuffer dimensions.
-    void SetResizeCallback(ResizeCallback callback) { m_ResizeCallback = std::move(callback); }
+    void SetResizeCallback  (ResizeCallback   callback) { m_ResizeCallback   = std::move(callback); }
+    // Registered by Application::Run — fires during modal title-bar drag loops.
+    void SetMoveTickCallback(MoveTickCallback callback) { m_MoveTickCallback = std::move(callback); }
 
   private:
     void ApplyDWMStyling() const;
 
     // GLFW event callbacks — retrieve Window* via glfwGetWindowUserPointer
-    static void OnWindowSizeChanged(GLFWwindow*, int w, int h);
-    static void OnWindowFocus      (GLFWwindow*, int focused);
-    static void OnWindowClose      (GLFWwindow*);
-    static void OnWindowMaximize   (GLFWwindow*, int maximized);
+    static void    OnWindowSizeChanged(GLFWwindow*, int w, int h);
+    static void    OnWindowFocus      (GLFWwindow*, int focused);
+    static void    OnWindowClose      (GLFWwindow*);
+    static void    OnWindowMaximize   (GLFWwindow*, int maximized);
+
+    // Win32 subclass WndProc — fires WM_TIMER ticks during modal drag loops.
+    static LRESULT CALLBACK SubclassWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
     GLFWwindow* m_Handle            = nullptr;
     int         m_Width             = 0;
@@ -86,7 +93,9 @@ namespace Marble {
     int         m_WindowedWidth     = 0;
     int         m_WindowedHeight    = 0;
     uint32_t    m_TitleBarColor     = 0xFFFFFFFF;
-    ResizeCallback m_ResizeCallback;
+    ResizeCallback   m_ResizeCallback;
+    MoveTickCallback m_MoveTickCallback;
+    WNDPROC          m_OrigWndProc  = nullptr;
   };
 
 } // namespace Marble

@@ -13,8 +13,15 @@ namespace Marble {
     struct SourceTag { explicit SourceTag() = default; };
     static constexpr SourceTag FromSource{};
 
+    // Tag type — compute-only shader (single stage, no vert/frag).
+    // Usage: std::make_unique<Shader>(Shader::Compute, computeSrc)
+    struct ComputeTag { explicit ComputeTag() = default; };
+    static constexpr ComputeTag Compute{};
+
     // Compile from GLSL source code embedded as string literals.
     Shader(SourceTag, const char* vertSrc, const char* fragSrc);
+    // Compile a compute-only program from an embedded GLSL source string.
+    Shader(ComputeTag, const char* computeSrc);
     // Compile from shader files on disk.
     Shader(const std::string& vertPath, const std::string& fragPath);
     ~Shader();
@@ -24,6 +31,11 @@ namespace Marble {
 
     void Bind()   const;
     void Unbind() const;
+
+    // Dispatch the compute program. Must be called after Bind().
+    // Blocks the current thread until the dispatch is enqueued (not completed).
+    // Use glMemoryBarrier after dispatching before reading the written data.
+    void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) const;
 
     void SetInt      (const char* name, int value)              const;
     void SetIntArray (const char* name, const int* v, int n)    const;

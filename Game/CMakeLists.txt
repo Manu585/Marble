@@ -25,10 +25,16 @@ marble_configure_executable(Game
     RENDER_STYLE    Smooth
 
     ICON_ICO        "${CMAKE_CURRENT_SOURCE_DIR}/assets/textures/icon/icon.ico"
-    ICON_PNG        "${CMAKE_CURRENT_SOURCE_DIR}/assets/textures/icon/icon.png"
+    ICON_PNG        "assets/textures/icon/icon.png"
+
+    # Each entry: "asset-relative-path"  fadeIn  hold  fadeOut  (seconds)
+    SPLASH_SCREENS
+        "assets/textures/Sprite-0001.png"  0.6  1.5  0.6
 )
 
 add_custom_command(TARGET Game POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_CURRENT_SOURCE_DIR}/assets $<TARGET_FILE_DIR:Game>/assets
+            ${CMAKE_CURRENT_SOURCE_DIR}/assets $<TARGET_FILE_DIR:Game>/assets
+    COMMENT "Copying assets"
+    VERBATIM
 )

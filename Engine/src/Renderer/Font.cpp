@@ -14,14 +14,13 @@
 namespace Marble {
 
   Font::Font(const std::string& path, float pixelHeight) : m_PixelHeight(pixelHeight) {
-    // ── Load .ttf file ────────────────────────────────────────────────────────
     std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) throw std::runtime_error("Failed to open font file: " + path);
-
-    const auto fileSize = static_cast<std::size_t>(file.tellg());
-    file.seekg(0, std::ios::beg);
-    std::vector<uint8_t> fontData(fileSize);
-    file.read(reinterpret_cast<char*>(fontData.data()), static_cast<std::streamsize>(fileSize));
+    if (!file.is_open())
+      throw std::runtime_error("Failed to open font file: " + path);
+    const auto size = static_cast<std::size_t>(file.tellg());
+    file.seekg(0);
+    std::vector<uint8_t> fontData(size);
+    file.read(reinterpret_cast<char*>(fontData.data()), static_cast<std::streamsize>(size));
 
     // ── Init stbtt ────────────────────────────────────────────────────────────
     stbtt_fontinfo fontInfo;

@@ -52,11 +52,18 @@ namespace Marble {
     // ── Post-processing ──────────────────────────────────────────────
     PostProcessSettings& GetPostProcessSettings() { return m_PostProcessSettings; }
 
+    // ── Layer switching ──────────────────────────────────────────────
+    // Queue a layer transition. Safe to call from OnUpdate.
+    // The current layer's OnStop runs before the new layer's OnStart,
+    // both on the next frame boundary so the current frame finishes cleanly.
+    void SwitchLayer(GameLayer& next);
+
   private:
     struct Viewport { int X = 0, Y = 0, W = 0, H = 0; };
 
     void     OnResize(int width, int height);
     Viewport ComputeLetterboxViewport() const;
+    void     TickFrame(float dt);
 
     // ── Window (MUST be declared first — destroyed last, after all GL objects) ─
     // C++ destroys members in reverse declaration order. Declaring Window first
@@ -70,8 +77,9 @@ namespace Marble {
     int  m_RenderHeight    = 0;
 
     // ── Game ─────────────────────────────────────────────────────────
-    GameLayer* m_Layer = nullptr;
-    float      m_Time  = 0.0f;
+    GameLayer* m_Layer        = nullptr;
+    GameLayer* m_PendingLayer = nullptr;
+    float      m_Time         = 0.0f;
 
     // ── Renderer ─────────────────────────────────────────────────────
     std::unique_ptr<Renderer2D>         m_Renderer;
